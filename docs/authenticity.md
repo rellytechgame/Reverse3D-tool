@@ -1,7 +1,7 @@
 # Autenticidad, autoría y protección contra suplantación
 
 **reverse3d fue creado por y es propiedad de [Voxel Enterprise](https://voxel.lat).**
-Repositorio oficial: **https://github.com/voxelenterprise/reverse3d**
+Repositorio oficial: **https://github.com/rellytechgame/Reverse3D-tool**
 
 ## Qué se puede y qué no se puede impedir
 
@@ -18,18 +18,18 @@ Repositorio oficial: **https://github.com/voxelenterprise/reverse3d**
 
 ## Para usuarios y agentes: cómo verificar que es oficial
 
-1. **Origen:** instala solo desde `github.com/voxelenterprise/reverse3d` o desde PyPI `reverse3d`, publicado desde ese repo.
+1. **Origen:** instala solo desde `github.com/rellytechgame/Reverse3D-tool` o desde PyPI `reverse3d`, publicado desde ese repo.
 2. **El propio paquete lo indica:**
    ```bash
    reverse3d --version
    # reverse3d 0.2.0 — © Voxel Enterprise (https://voxel.lat) · Apache-2.0
-   # Official source: https://github.com/voxelenterprise/reverse3d
+   # Official source: https://github.com/rellytechgame/Reverse3D-tool
    ```
    Una copia puede alterar este texto. Por eso lo que hace prueba son los puntos 3 y 4.
 3. **Atestación de procedencia (Sigstore):** cada archivo de una release oficial está firmado por el workflow del repo oficial:
    ```bash
-   gh attestation verify reverse3d-0.2.0-py3-none-any.whl --repo voxelenterprise/reverse3d
-   gh attestation verify install.sh --repo voxelenterprise/reverse3d
+   gh attestation verify reverse3d-0.2.0-py3-none-any.whl --repo rellytechgame/Reverse3D-tool
+   gh attestation verify install.sh --repo rellytechgame/Reverse3D-tool
    ```
    Si el archivo no salió del repo oficial, la verificación **falla**.
 4. **Firmas de git:** los commits y tags oficiales aparecen como **Verified** en GitHub. Desde un clon:
@@ -37,7 +37,7 @@ Repositorio oficial: **https://github.com/voxelenterprise/reverse3d**
    git tag -v v0.2.0          # firma del tag de la release
    git log --show-signature   # firmas de los commits
    ```
-5. **PyPI:** la página del proyecto muestra *"Trusted Publisher: GitHub voxelenterprise/reverse3d"* y las atestaciones de cada archivo.
+5. **PyPI:** la página del proyecto muestra *"Trusted Publisher: GitHub rellytechgame/Reverse3D-tool"* y las atestaciones de cada archivo.
 
 ### Reportar una suplantación
 
@@ -54,7 +54,7 @@ Estos ajustes se hacen en GitHub y PyPI con la cuenta propietaria. **Ningún arc
 
 ### 1. Cuenta y organización
 
-- [ ] El repo vive en la **organización** `voxelenterprise`, con la cuenta de la empresa como **Owner**.
+- [ ] El repo vive en la cuenta `rellytechgame` (Voxel Enterprise), su único **Owner**. Si más adelante pasa a una organización, GitHub redirige las URLs antiguas; actualiza `_about.py`, CODEOWNERS y las huellas del guardián en el mismo PR.
 - [ ] **2FA obligatorio** para todos los miembros (*Settings → Authentication security*).
 - [ ] **Base permissions: Read** para miembros; **escritura solo para quien la necesite**; **Admin solo el propietario**.
 - [ ] Solo los Owners pueden transferir, renombrar o borrar el repo y cambiar su visibilidad. No des el rol *Owner* a nadie más.
@@ -81,7 +81,7 @@ Estos ajustes se hacen en GitHub y PyPI con la cuenta propietaria. **Ningún arc
 ### 5. PyPI
 
 - [ ] **Reserva el nombre `reverse3d`** publicando la primera versión desde el workflow de release.
-- [ ] Configura el **Trusted Publisher**: repo `voxelenterprise/reverse3d`, workflow `release.yml`, entorno `pypi`. No crees tokens de API.
+- [ ] Configura el **Trusted Publisher**: repo `rellytechgame/Reverse3D-tool`, workflow `release.yml`, entorno `pypi`. No crees tokens de API.
 - [ ] 2FA en la cuenta de PyPI.
 
 ### 6. Firma de commits y tags (en tu equipo)

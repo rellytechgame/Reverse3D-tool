@@ -65,7 +65,7 @@ def test_package_exposes_author() -> None:
     [
         ("pyproject.toml", 'name = "Voxel Enterprise"', 'name = "Impostor Inc"', "pyproject.toml"),
         ("reverse3d/_about.py", 'AUTHOR = "Voxel Enterprise"', 'AUTHOR = "Impostor"', "AUTHOR"),
-        ("reverse3d/_about.py", "github.com/voxelenterprise", "github.com/impostor", "OFFICIAL"),
+        ("reverse3d/_about.py", "github.com/rellytechgame", "github.com/impostor", "OFFICIAL"),
         ("LICENSE", "Copyright 2026 Voxel Enterprise", "Copyright 2026 Impostor", "LICENSE"),
         ("NOTICE", "Voxel Enterprise", "Someone Else", "NOTICE"),
         ("README.md", "## Sobre Voxel Enterprise", "## Sobre nosotros", "README.md"),

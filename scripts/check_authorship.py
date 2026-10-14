@@ -36,13 +36,13 @@ EXPECTED_ABOUT = {
     "AUTHOR_URL": "https://voxel.lat",
     "COPYRIGHT": "Copyright 2026 Voxel Enterprise",
     "LICENSE": "Apache-2.0",
-    "OFFICIAL_REPOSITORY": "https://github.com/voxelenterprise/reverse3d",
+    "OFFICIAL_REPOSITORY": "https://github.com/rellytechgame/Reverse3D-tool",
 }
 
 # SHA-256 of the file contents with line endings normalised to LF.
 PINNED_FILES = {
     "LICENSE": "08ca2cd2118f3f2179792bd62f385649d94be280a2ee8acb51781919e2ac62a9",
-    "NOTICE": "5b4b7515f1cfc219ef1f0861bc69d00fdc6c8c78871448cd7fa6c71e93c15f8d",
+    "NOTICE": "5bcee14f09e89e67551841dc525346200ad0d3058bbe5a315269e673d44ddf47",
 }
 
 REQUIRED_TEXT = {
@@ -51,7 +51,7 @@ REQUIRED_TEXT = {
         'maintainers = [{ name = "Voxel Enterprise", email = "info@voxel.lat" }]',
         'license = "Apache-2.0"',
         'Homepage = "https://voxel.lat"',
-        'Repository = "https://github.com/voxelenterprise/reverse3d"',
+        'Repository = "https://github.com/rellytechgame/Reverse3D-tool"',
     ],
     "README.md": [
         "Desarrollado por **[Voxel Enterprise](https://voxel.lat)**",

@@ -55,33 +55,33 @@ environments:
 protected_paths:
   # Authorship & ownership (enforced by scripts/check_authorship.py in CI/pre-commit)
   - path: "LICENSE"
-    owners: ["@voxelenterprise/owners"]
+    owners: ["@rellytechgame"]
   - path: "NOTICE"
-    owners: ["@voxelenterprise/owners"]
+    owners: ["@rellytechgame"]
   - path: "AUTHORS.md"
-    owners: ["@voxelenterprise/owners"]
+    owners: ["@rellytechgame"]
   - path: "TRADEMARKS.md"
-    owners: ["@voxelenterprise/owners"]
+    owners: ["@rellytechgame"]
   - path: "reverse3d/_about.py"
-    owners: ["@voxelenterprise/owners"]
+    owners: ["@rellytechgame"]
   - path: "scripts/check_authorship.py"
-    owners: ["@voxelenterprise/owners"]
+    owners: ["@rellytechgame"]
   - path: ".github/workflows/release.yml"
-    owners: ["@voxelenterprise/owners"]
+    owners: ["@rellytechgame"]
   - path: "reverse3d/security.py"
-    owners: ["@voxelenterprise/security"]
+    owners: ["@rellytechgame"]
   - path: "reverse3d/mesh_io.py"
-    owners: ["@voxelenterprise/security"]
+    owners: ["@rellytechgame"]
   - path: "reverse3d/agent/**"
-    owners: ["@voxelenterprise/security"]
+    owners: ["@rellytechgame"]
   - path: "reverse3d/rendering/_blender_job.py"
-    owners: ["@voxelenterprise/security"]
+    owners: ["@rellytechgame"]
   - path: ".github/workflows/**"
-    owners: ["@voxelenterprise/devops", "@voxelenterprise/security"]
+    owners: ["@rellytechgame"]
   - path: "pyproject.toml"
-    owners: ["@voxelenterprise/maintainers"]
+    owners: ["@rellytechgame"]
   - path: "policy.yaml"
-    owners: ["@voxelenterprise/security", "@voxelenterprise/devops"]
+    owners: ["@rellytechgame"]
 
 # ─── Patrones prohibidos ──────────────────────────────────────────────────────
 prohibited_patterns:

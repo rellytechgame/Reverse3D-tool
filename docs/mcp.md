@@ -36,7 +36,7 @@ En Claude Code aparecen como `/mcp__reverse3d__fotos-a-3d`, etc. El servidor tam
   "mcpServers": {
     "reverse3d": {
       "command": "uvx",
-      "args": ["--from", "reverse3d[mcp,render] @ git+https://github.com/voxelenterprise/reverse3d",
+      "args": ["--from", "reverse3d[mcp,render] @ git+https://github.com/rellytechgame/Reverse3D-tool",
                "reverse3d", "agent", "mcp"],
       "env": { "REVERSE3D_WORKSPACE": "/ruta/a/mi-workspace" }
     }

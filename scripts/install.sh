@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # reverse3d installer for Linux and macOS — Voxel Enterprise (https://voxel.lat)
 #
-#   curl -fsSL https://raw.githubusercontent.com/voxelenterprise/reverse3d/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/scripts/install.sh | bash
 #   curl -fsSL .../install.sh | bash -s -- --full --device gpu
 #
 # What it does (nothing else):
@@ -27,7 +27,7 @@
 #   --uninstall            remove agents' entries, the venv and the command link
 set -euo pipefail
 
-REPO_URL="${REVERSE3D_REPO:-https://github.com/voxelenterprise/reverse3d}"
+REPO_URL="${REVERSE3D_REPO:-https://github.com/rellytechgame/Reverse3D-tool}"
 REF="${REVERSE3D_REF:-main}"
 R3D_HOME="${REVERSE3D_HOME:-$HOME/.reverse3d}"
 VENV="$R3D_HOME/venv"

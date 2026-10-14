@@ -72,10 +72,10 @@ reverse3d = "reverse3d.cli:main"
 
 [project.urls]
 Homepage = "https://voxel.lat"
-Documentation = "https://github.com/voxelenterprise/reverse3d/tree/main/docs"
-Repository = "https://github.com/voxelenterprise/reverse3d"
-Issues = "https://github.com/voxelenterprise/reverse3d/issues"
-Security = "https://github.com/voxelenterprise/reverse3d/security/policy"
+Documentation = "https://github.com/rellytechgame/Reverse3D-tool/tree/main/docs"
+Repository = "https://github.com/rellytechgame/Reverse3D-tool"
+Issues = "https://github.com/rellytechgame/Reverse3D-tool/issues"
+Security = "https://github.com/rellytechgame/Reverse3D-tool/security/policy"
 
 [tool.setuptools.dynamic]
 version = { attr = "reverse3d._version.__version__" }

@@ -11,7 +11,7 @@
 
 **No abras issues públicos para reportar vulnerabilidades.**
 
-1. **Preferido:** usa [GitHub Private Vulnerability Reporting](https://github.com/voxelenterprise/reverse3d/security/advisories/new).
+1. **Preferido:** usa [GitHub Private Vulnerability Reporting](https://github.com/rellytechgame/Reverse3D-tool/security/advisories/new).
 2. **Alternativa:** escribe a **info@voxel.lat** con el asunto `[SECURITY] reverse3d`.
 
 Incluye la versión afectada (`reverse3d --version`), los pasos para reproducirla, el impacto y, si lo tienes, un archivo de prueba mínimo.

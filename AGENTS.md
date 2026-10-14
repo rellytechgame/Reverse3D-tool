@@ -13,8 +13,8 @@ Follow these steps without asking unless something fails. Each command is idempo
 
 | OS | Command |
 |----|---------|
-| Linux / macOS | `curl -fsSL https://raw.githubusercontent.com/voxelenterprise/reverse3d/main/scripts/install.sh \| bash` |
-| Windows (PowerShell) | `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/voxelenterprise/reverse3d/main/scripts/install.ps1 \| iex"` |
+| Linux / macOS | `curl -fsSL https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/scripts/install.sh \| bash` |
+| Windows (PowerShell) | `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/scripts/install.ps1 \| iex"` |
 | Repo already cloned | Linux/macOS: `bash scripts/install.sh --source .` · Windows: `powershell -ExecutionPolicy Bypass -File scripts/install.ps1 -Source .` |
 
 Add options only when the user asked for them:

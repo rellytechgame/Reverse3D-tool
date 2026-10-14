@@ -9,7 +9,7 @@ name: Release
 #   2. The authorship guard must pass for the tagged commit.
 #   3. Every artifact gets a signed build-provenance attestation (Sigstore),
 #      verifiable by anyone with:
-#        gh attestation verify <file> --repo voxelenterprise/reverse3d
+#        gh attestation verify <file> --repo rellytechgame/Reverse3D-tool
 #   4. PyPI publishing uses Trusted Publishing (OIDC, no stored token) from the
 #      protected "pypi" environment, which requires the owner's approval.
 

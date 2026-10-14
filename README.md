@@ -7,7 +7,7 @@
 Fotos → modelo 3D medido · Plano o careta → pieza · Escaneo → CAD paramétrico · Render automático.
 Se instala pasándole la URL del repo a tu agente y funciona con Claude, Cursor, VS Code/Copilot, Gemini, Codex, OpenCode, Windsurf y cualquier cliente MCP. En GPU o en CPU.
 
-[![CI](https://github.com/voxelenterprise/reverse3d/actions/workflows/ci.yml/badge.svg)](https://github.com/voxelenterprise/reverse3d/actions/workflows/ci.yml)
+[![CI](https://github.com/rellytechgame/Reverse3D-tool/actions/workflows/ci.yml/badge.svg)](https://github.com/rellytechgame/Reverse3D-tool/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-tools%20%2B%20prompts-8A2BE2)](docs/mcp.md)
@@ -53,13 +53,13 @@ Desarrollado por **[Voxel Enterprise](https://voxel.lat)**
 Copia y pega esto en tu agente (Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Copilot, Windsurf…):
 
 ```text
-Instala reverse3d desde https://github.com/voxelenterprise/reverse3d siguiendo su AGENTS.md
+Instala reverse3d desde https://github.com/rellytechgame/Reverse3D-tool siguiendo su AGENTS.md
 ```
 
 El agente lee [`AGENTS.md`](AGENTS.md) y hace el resto por su cuenta: instala, detecta tu GPU, se registra en todos tus agentes y verifica la instalación. Puedes añadir preferencias en la misma frase:
 
 ```text
-Instala reverse3d desde https://github.com/voxelenterprise/reverse3d con todo (--full), usando GPU y perfil de máxima calidad
+Instala reverse3d desde https://github.com/rellytechgame/Reverse3D-tool con todo (--full), usando GPU y perfil de máxima calidad
 ```
 
 ### Opción 2 — Un comando en la terminal
@@ -67,25 +67,25 @@ Instala reverse3d desde https://github.com/voxelenterprise/reverse3d con todo (-
 **Linux / macOS**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/voxelenterprise/reverse3d/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/scripts/install.sh | bash
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-irm https://raw.githubusercontent.com/voxelenterprise/reverse3d/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/scripts/install.ps1 | iex
 ```
 
 Con opciones:
 
 ```bash
 # Linux/macOS: todo + GPU + calidad máxima
-curl -fsSL https://raw.githubusercontent.com/voxelenterprise/reverse3d/main/scripts/install.sh | bash -s -- --full --device gpu --profile quality
+curl -fsSL https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/scripts/install.sh | bash -s -- --full --device gpu --profile quality
 ```
 
 ```powershell
 # Windows: todo + GPU + calidad máxima
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/voxelenterprise/reverse3d/main/scripts/install.ps1))) -Full -Device gpu -Performance quality
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/scripts/install.ps1))) -Full -Device gpu -Performance quality
 ```
 
 > ¿Prefieres revisar el script antes de ejecutarlo? Descárgalo, léelo y ejecútalo: `curl -fsSLO …/install.sh && less install.sh && bash install.sh`.
@@ -140,7 +140,7 @@ Si tienes [uv](https://docs.astral.sh/uv/), cualquier cliente MCP puede ejecutar
   "mcpServers": {
     "reverse3d": {
       "command": "uvx",
-      "args": ["--from", "reverse3d[mcp,render] @ git+https://github.com/voxelenterprise/reverse3d",
+      "args": ["--from", "reverse3d[mcp,render] @ git+https://github.com/rellytechgame/Reverse3D-tool",
                "reverse3d", "agent", "mcp"],
       "env": { "REVERSE3D_WORKSPACE": "/ruta/a/mi-workspace" }
     }
@@ -151,7 +151,7 @@ Si tienes [uv](https://docs.astral.sh/uv/), cualquier cliente MCP puede ejecutar
 ### Opción 4 — Manual (desarrolladores)
 
 ```bash
-git clone https://github.com/voxelenterprise/reverse3d.git && cd reverse3d
+git clone https://github.com/rellytechgame/Reverse3D-tool.git && cd Reverse3D-tool
 python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\Activate.ps1
 pip install -e ".[mcp,render]"                          # o ".[all]" / ".[dev]"
 reverse3d setup                                         # registra en tus agentes
@@ -398,7 +398,7 @@ Detalle en [docs/security-model.md](docs/security-model.md). Para reportar vulne
 - **Repo oficial blindado:** un *guardián de autoría* (`scripts/check_authorship.py`) bloquea en CI, en pre-commit y en los tests cualquier cambio de autor, licencia o copyright. CODEOWNERS exige la aprobación del propietario, y los agentes de IA tienen la regla explícita de no tocar la autoría ([AGENTS.md §4](AGENTS.md)).
 - **Releases verificables:** solo se publican desde **tags firmados**, cada archivo lleva una **atestación de procedencia (Sigstore)** y PyPI usa *Trusted Publishing*. Para comprobar que tu copia es la oficial:
   ```bash
-  gh attestation verify <archivo> --repo voxelenterprise/reverse3d
+  gh attestation verify <archivo> --repo rellytechgame/Reverse3D-tool
   ```
 - **Copias y forks:** están permitidos, pero deben **conservar la atribución** (Apache-2.0 §4, [NOTICE](NOTICE)) y **usar otro nombre** ([TRADEMARKS.md](TRADEMARKS.md)). Presentarse como autor o dueño de reverse3d no está permitido.
 

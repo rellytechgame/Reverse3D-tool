@@ -5,7 +5,7 @@
 ## Entorno de desarrollo
 
 ```bash
-git clone https://github.com/voxelenterprise/reverse3d.git
+git clone https://github.com/rellytechgame/Reverse3D-tool.git
 cd reverse3d
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate

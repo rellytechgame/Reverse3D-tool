@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | Titular del copyright | Voxel Enterprise. `Copyright 2026 Voxel Enterprise` |
-| Repositorio oficial | https://github.com/voxelenterprise/reverse3d |
+| Repositorio oficial | https://github.com/rellytechgame/Reverse3D-tool |
 | Contacto | info@voxel.lat |
 | Licencia del código | Apache-2.0 ([LICENSE](LICENSE), [NOTICE](NOTICE)) |
 | Nombre y logos | Marcas de Voxel Enterprise. Ver [TRADEMARKS.md](TRADEMARKS.md) |

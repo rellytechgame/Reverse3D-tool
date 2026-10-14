@@ -1,34 +1,35 @@
 # CODEOWNERS — reverse3d (© Voxel Enterprise)
 #
-# Replace @voxelenterprise/... with the real GitHub user/team of the owner.
+# Owner: @rellytechgame (Voxel Enterprise). If the repo moves to an organization,
+# replace it with the org's owners team.
 # Enforced when the branch ruleset "Require review from Code Owners" is on
 # (see docs/authenticity.md → Owner hardening checklist).
 
 # Default owners
-*                                   @voxelenterprise/maintainers
+*                                   @rellytechgame
 
 # ── Authorship & ownership: owner approval required (checked by scripts/check_authorship.py) ──
-/LICENSE                            @voxelenterprise/owners
-/NOTICE                             @voxelenterprise/owners
-/AUTHORS.md                         @voxelenterprise/owners
-/TRADEMARKS.md                      @voxelenterprise/owners
-/reverse3d/_about.py                @voxelenterprise/owners
-/scripts/check_authorship.py        @voxelenterprise/owners
-/pyproject.toml                     @voxelenterprise/owners @voxelenterprise/maintainers
-/.github/CODEOWNERS                 @voxelenterprise/owners
-/.github/workflows/release.yml      @voxelenterprise/owners
+/LICENSE                            @rellytechgame
+/NOTICE                             @rellytechgame
+/AUTHORS.md                         @rellytechgame
+/TRADEMARKS.md                      @rellytechgame
+/reverse3d/_about.py                @rellytechgame
+/scripts/check_authorship.py        @rellytechgame
+/pyproject.toml                     @rellytechgame
+/.github/CODEOWNERS                 @rellytechgame
+/.github/workflows/release.yml      @rellytechgame
 
 # ── Security-sensitive paths (see policy.yaml → protected_paths) ──
-/reverse3d/security.py              @voxelenterprise/security @voxelenterprise/maintainers
-/reverse3d/mesh_io.py               @voxelenterprise/security @voxelenterprise/maintainers
-/reverse3d/agent/                   @voxelenterprise/security @voxelenterprise/maintainers
-/reverse3d/userconfig.py            @voxelenterprise/security
-/reverse3d/setup_agents.py          @voxelenterprise/security
-/reverse3d/rendering/_blender_job.py @voxelenterprise/security
-/reverse3d/reconstruction/depth_estimation.py @voxelenterprise/security
-/scripts/install.sh                 @voxelenterprise/security @voxelenterprise/owners
-/scripts/install.ps1                @voxelenterprise/security @voxelenterprise/owners
-/.github/workflows/                 @voxelenterprise/devops @voxelenterprise/security
-/requirements*.txt                  @voxelenterprise/maintainers
-/policy.yaml                        @voxelenterprise/security @voxelenterprise/devops
-/SECURITY.md                        @voxelenterprise/security
+/reverse3d/security.py              @rellytechgame
+/reverse3d/mesh_io.py               @rellytechgame
+/reverse3d/agent/                   @rellytechgame
+/reverse3d/userconfig.py            @rellytechgame
+/reverse3d/setup_agents.py          @rellytechgame
+/reverse3d/rendering/_blender_job.py @rellytechgame
+/reverse3d/reconstruction/depth_estimation.py @rellytechgame
+/scripts/install.sh                 @rellytechgame
+/scripts/install.ps1                @rellytechgame
+/.github/workflows/                 @rellytechgame
+/requirements*.txt                  @rellytechgame
+/policy.yaml                        @rellytechgame
+/SECURITY.md                        @rellytechgame

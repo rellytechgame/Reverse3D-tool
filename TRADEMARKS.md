@@ -17,7 +17,7 @@ Los nombres **"reverse3d"** y **"Voxel Enterprise"**, sus logos y la identidad d
 
 - Presentarte, o presentar a tu organización, como **autor, creador o dueño** de reverse3d.
 - Eliminar o alterar la atribución a Voxel Enterprise en `LICENSE`, `NOTICE`, `AUTHORS.md` o los metadatos del paquete.
-- Publicar un paquete, servidor MCP, skill o extensión llamado "reverse3d", o con un nombre confusamente similar, que no provenga del [repositorio oficial](https://github.com/voxelenterprise/reverse3d).
+- Publicar un paquete, servidor MCP, skill o extensión llamado "reverse3d", o con un nombre confusamente similar, que no provenga del [repositorio oficial](https://github.com/rellytechgame/Reverse3D-tool).
 - Usar los logos o el nombre de Voxel Enterprise para sugerir respaldo, alianza o certificación que no existe.
 
 ## Cómo verificar qué es oficial

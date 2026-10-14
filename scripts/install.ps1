@@ -17,10 +17,10 @@
   Do not add the venv to the user PATH.
 
 .EXAMPLE
-  irm https://raw.githubusercontent.com/voxelenterprise/reverse3d/main/scripts/install.ps1 | iex
+  irm https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/scripts/install.ps1 | iex
 
 .EXAMPLE
-  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/voxelenterprise/reverse3d/main/scripts/install.ps1))) -Full -Device gpu
+  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/scripts/install.ps1))) -Full -Device gpu
 #>
 [CmdletBinding()]
 param(
@@ -40,7 +40,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
-$RepoUrl = if ($env:REVERSE3D_REPO) { $env:REVERSE3D_REPO } else { "https://github.com/voxelenterprise/reverse3d" }
+$RepoUrl = if ($env:REVERSE3D_REPO) { $env:REVERSE3D_REPO } else { "https://github.com/rellytechgame/Reverse3D-tool" }
 $R3dHome = if ($env:REVERSE3D_HOME) { $env:REVERSE3D_HOME } else { Join-Path $env:USERPROFILE ".reverse3d" }
 $Venv = Join-Path $R3dHome "venv"
 $Scripts = Join-Path $Venv "Scripts"
