@@ -40,6 +40,10 @@ Están **fuera** del alcance:
 - Ataques que requieren que el operador ejecute comandos CLI arbitrarios con rutas maliciosas. La CLI directa confía en su operador; el sandbox aplica a `agent call` y `agent mcp`.
 - Uso de modelos con licencia no comercial fuera de sus términos.
 
+## Suplantación de autoría o del proyecto
+
+Si encuentras un fork, paquete, servidor MCP o extensión que se presenta como el reverse3d oficial o como si su autor fuera otro, repórtalo a **info@voxel.lat** con el asunto `[SUPLANTACIÓN] reverse3d`. En [docs/authenticity.md](docs/authenticity.md) se explica cómo verificar los releases oficiales: tags firmados y atestaciones Sigstore.
+
 ## Modelo de seguridad
 
 El diseño completo (activos, amenazas, controles y riesgos residuales) está en [docs/security-model.md](docs/security-model.md).

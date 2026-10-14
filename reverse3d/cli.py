@@ -212,7 +212,10 @@ def _run(ctx: typer.Context, fn: Callable[[Settings], Any]) -> None:
 
 def _version_callback(value: bool) -> None:
     if value:
-        typer.echo(f"reverse3d {__version__}")
+        from reverse3d._about import AUTHOR, AUTHOR_URL, LICENSE, OFFICIAL_REPOSITORY
+
+        typer.echo(f"reverse3d {__version__} — © {AUTHOR} ({AUTHOR_URL}) · {LICENSE}")
+        typer.echo(f"Official source: {OFFICIAL_REPOSITORY}")
         raise typer.Exit()
 
 

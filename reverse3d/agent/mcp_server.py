@@ -141,9 +141,14 @@ def build_server(settings_provider: SettingsProvider, *, max_concurrent: int = 1
     async def on_get_prompt(ctx: Any, params: Any) -> Any:
         return prompt_result(params.name, params.arguments)
 
+    from reverse3d._about import AUTHOR, AUTHOR_URL
+
     return Server(
         "reverse3d",
         version=__version__,
+        title="reverse3d",
+        description=f"3D modeling and reverse engineering toolkit by {AUTHOR}",
+        website_url=AUTHOR_URL,
         instructions=SERVER_INSTRUCTIONS,
         on_list_tools=on_list_tools,
         on_call_tool=on_call_tool,

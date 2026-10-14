@@ -1,0 +1,143 @@
+name: Release
+
+# Official releases of reverse3d (© Voxel Enterprise).
+#
+# Provenance guarantees:
+#   1. Only annotated tags with a signature that GitHub verifies can publish.
+#      Optionally, the repository variable RELEASE_MAINTAINERS (comma list of
+#      GitHub usernames) restricts who may push the tag.
+#   2. The authorship guard must pass for the tagged commit.
+#   3. Every artifact gets a signed build-provenance attestation (Sigstore),
+#      verifiable by anyone with:
+#        gh attestation verify <file> --repo voxelenterprise/reverse3d
+#   4. PyPI publishing uses Trusted Publishing (OIDC, no stored token) from the
+#      protected "pypi" environment, which requires the owner's approval.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify signed tag & authorship
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Tag must be annotated and signature-verified by GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          ref_json="$(gh api "repos/$REPO/git/ref/tags/$TAG")"
+          type="$(jq -r .object.type <<<"$ref_json")"
+          sha="$(jq -r .object.sha <<<"$ref_json")"
+          if [ "$type" != "tag" ]; then
+            echo "::error::Release tags must be annotated and signed (git tag -s $TAG)."; exit 1
+          fi
+          verified="$(gh api "repos/$REPO/git/tags/$sha" --jq .verification.verified)"
+          reason="$(gh api "repos/$REPO/git/tags/$sha" --jq .verification.reason)"
+          if [ "$verified" != "true" ]; then
+            echo "::error::Tag signature not verified by GitHub (reason: $reason)."; exit 1
+          fi
+          echo "Signed tag verified: $TAG ($sha)"
+      - name: Release author must be an authorised maintainer
+        if: ${{ vars.RELEASE_MAINTAINERS != '' }}
+        env:
+          ALLOWED: ${{ vars.RELEASE_MAINTAINERS }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          case ",${ALLOWED// /}," in
+            *",$ACTOR,"*) echo "Release author $ACTOR is authorised." ;;
+            *) echo "::error::$ACTOR is not in RELEASE_MAINTAINERS."; exit 1 ;;
+          esac
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Authorship guard
+        run: python scripts/check_authorship.py
+      - name: Tag matches package version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="$(python -c 'import re,pathlib; print(re.search(r"\"(.+)\"", pathlib.Path("reverse3d/_version.py").read_text()).group(1))')"
+          [ "v$version" = "$TAG" ] || { echo "::error::Tag $TAG != package version v$version"; exit 1; }
+
+  build:
+    name: Build & attest
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write       # Sigstore signing for attestations
+      attestations: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade build
+      - run: python -m build
+      - name: Build provenance attestation (Sigstore)
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
+            scripts/install.sh
+            scripts/install.ps1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist
+          path: |
+            dist/
+            scripts/install.sh
+            scripts/install.ps1
+
+  github-release:
+    name: GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+      - name: Create release with checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          sha256sum dist/* scripts/install.sh scripts/install.ps1 > SHA256SUMS.txt
+          gh release create "$TAG" --repo "$REPO" --verify-tag \
+            --title "reverse3d $TAG — Voxel Enterprise" \
+            --notes "Official release of reverse3d by Voxel Enterprise (https://voxel.lat). Verify: gh attestation verify <file> --repo $REPO" \
+            dist/* scripts/install.sh scripts/install.ps1 SHA256SUMS.txt
+
+  pypi:
+    name: Publish to PyPI (Trusted Publishing)
+    needs: build
+    runs-on: ubuntu-latest
+    # Configure this environment with "Required reviewers: <owner>" so nothing
+    # reaches PyPI without the owner's explicit approval.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/reverse3d/
+    permissions:
+      id-token: write       # OIDC token for PyPI Trusted Publishing (no API token stored)
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+      - uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # v1.12.4
+        with:
+          packages-dir: dist/

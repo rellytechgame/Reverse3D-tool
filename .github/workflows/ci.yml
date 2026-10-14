@@ -31,6 +31,8 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install -e ".[dev]"
+      - name: Authorship guard (ownership of reverse3d cannot change)
+        run: python scripts/check_authorship.py
       - run: ruff format --check reverse3d tests
       - run: ruff check reverse3d tests
       - run: mypy reverse3d

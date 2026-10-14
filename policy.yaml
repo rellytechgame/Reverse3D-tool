@@ -53,6 +53,21 @@ environments:
 
 # ─── Paths protegidos (ver .github/CODEOWNERS) ────────────────────────────────
 protected_paths:
+  # Authorship & ownership (enforced by scripts/check_authorship.py in CI/pre-commit)
+  - path: "LICENSE"
+    owners: ["@voxelenterprise/owners"]
+  - path: "NOTICE"
+    owners: ["@voxelenterprise/owners"]
+  - path: "AUTHORS.md"
+    owners: ["@voxelenterprise/owners"]
+  - path: "TRADEMARKS.md"
+    owners: ["@voxelenterprise/owners"]
+  - path: "reverse3d/_about.py"
+    owners: ["@voxelenterprise/owners"]
+  - path: "scripts/check_authorship.py"
+    owners: ["@voxelenterprise/owners"]
+  - path: ".github/workflows/release.yml"
+    owners: ["@voxelenterprise/owners"]
   - path: "reverse3d/security.py"
     owners: ["@voxelenterprise/security"]
   - path: "reverse3d/mesh_io.py"

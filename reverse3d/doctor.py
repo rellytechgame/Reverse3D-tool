@@ -63,10 +63,13 @@ def environment_report(settings: Settings) -> dict[str, object]:
         except Reverse3DError as exc:
             tools[tool] = {"available": False, "hint": exc.hint}
 
+    from reverse3d._about import AUTHOR, AUTHOR_URL, OFFICIAL_REPOSITORY
     from reverse3d.hardware import hardware_report
 
     return {
         "reverse3d": __version__,
+        "author": f"{AUTHOR} ({AUTHOR_URL})",
+        "official_source": OFFICIAL_REPOSITORY,
         "python": sys.version.split()[0],
         "platform": platform.platform(),
         "workspace": str(settings.workspace),

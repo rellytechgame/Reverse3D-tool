@@ -2,6 +2,15 @@
 # Hooks are pinned to commit SHAs (supply-chain control); update with
 # `pre-commit autoupdate --freeze`.
 repos:
+  - repo: local
+    hooks:
+      - id: authorship-guard
+        name: Authorship guard (reverse3d © Voxel Enterprise)
+        entry: python scripts/check_authorship.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b # frozen: v5.0.0
     hooks:

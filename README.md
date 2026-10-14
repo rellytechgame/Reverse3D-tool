@@ -34,6 +34,7 @@ Desarrollado por **[Voxel Enterprise](https://voxel.lat)**
 - [Stack tecnológico](#stack-tecnológico)
 - [Arquitectura](#arquitectura)
 - [Seguridad](#seguridad)
+- [🔏 Autenticidad y autoría](#-autenticidad-y-autoría)
 - [Solución de problemas](#solución-de-problemas)
 - [Estructura del repositorio](#estructura-del-repositorio)
 - [Desarrollo](#desarrollo)
@@ -390,6 +391,19 @@ Detalle en [docs/architecture.md](docs/architecture.md).
 
 Detalle en [docs/security-model.md](docs/security-model.md). Para reportar vulnerabilidades, consulta [SECURITY.md](SECURITY.md).
 
+## 🔏 Autenticidad y autoría
+
+**reverse3d fue creado por y es propiedad de [Voxel Enterprise](https://voxel.lat).** El código es open source (Apache-2.0); **la autoría y el nombre no se ceden**.
+
+- **Repo oficial blindado:** un *guardián de autoría* (`scripts/check_authorship.py`) bloquea en CI, en pre-commit y en los tests cualquier cambio de autor, licencia o copyright. CODEOWNERS exige la aprobación del propietario, y los agentes de IA tienen la regla explícita de no tocar la autoría ([AGENTS.md §4](AGENTS.md)).
+- **Releases verificables:** solo se publican desde **tags firmados**, cada archivo lleva una **atestación de procedencia (Sigstore)** y PyPI usa *Trusted Publishing*. Para comprobar que tu copia es la oficial:
+  ```bash
+  gh attestation verify <archivo> --repo voxelenterprise/reverse3d
+  ```
+- **Copias y forks:** están permitidos, pero deben **conservar la atribución** (Apache-2.0 §4, [NOTICE](NOTICE)) y **usar otro nombre** ([TRADEMARKS.md](TRADEMARKS.md)). Presentarse como autor o dueño de reverse3d no está permitido.
+
+Más detalles, cómo reportar suplantaciones y la lista de blindaje del propietario: **[docs/authenticity.md](docs/authenticity.md)** · Autores: [AUTHORS.md](AUTHORS.md)
+
 ## Solución de problemas
 
 | Problema | Solución |
@@ -468,7 +482,7 @@ Las normas y reglas de seguridad obligatorias están en [CONTRIBUTING.md](CONTRI
 
 ## Licencia
 
-**Apache 2.0**. Ver [LICENSE](LICENSE) y [NOTICE](NOTICE). Blender, COLMAP y los pesos de los modelos conservan sus propias licencias. **Depth Anything V2 Base y Large son CC-BY-NC-4.0 (uso no comercial)**; el modelo por defecto, *Small*, es Apache-2.0.
+**Apache 2.0** © Voxel Enterprise. Ver [LICENSE](LICENSE), [NOTICE](NOTICE), [AUTHORS.md](AUTHORS.md) y [TRADEMARKS.md](TRADEMARKS.md). Las redistribuciones deben conservar la atribución. Blender, COLMAP y los pesos de los modelos conservan sus propias licencias. **Depth Anything V2 Base y Large son CC-BY-NC-4.0 (uso no comercial)**; el modelo por defecto, *Small*, es Apache-2.0.
 
 <div align="center">
 <sub>Hecho con ❤️ en Panamá por <a href="https://voxel.lat">Voxel Enterprise</a></sub>

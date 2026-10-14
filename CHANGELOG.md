@@ -4,6 +4,13 @@ Todos los cambios notables se documentan aquí. Formato basado en [Keep a Change
 
 ## [0.2.0] — 2026-10-14
 
+### Autoría y procedencia
+- **Guardián de autoría** (`scripts/check_authorship.py`): huellas SHA-256 de LICENSE y NOTICE y verificación de la atribución en metadatos, código y README. Se ejecuta en CI, en pre-commit y en los tests, que incluyen 12 escenarios de ataque.
+- **`reverse3d/_about.py`**: fuente única de la autoría. `reverse3d --version`, `doctor` y el servidor MCP muestran el autor y el repo oficial.
+- **`release.yml`**: releases solo desde tags firmados y verificados, opcionalmente limitados a `RELEASE_MAINTAINERS`. Añade atestaciones Sigstore de procedencia, `SHA256SUMS` y PyPI con Trusted Publishing tras la aprobación del propietario.
+- **`AUTHORS.md`**, **`TRADEMARKS.md`**, un `NOTICE` reforzado y **`docs/authenticity.md`** (verificación, reporte de suplantaciones y lista de blindaje del propietario).
+- CODEOWNERS del propietario para todos los archivos de autoría, y regla explícita para agentes de IA en `AGENTS.md §4`.
+
 ### Añadido
 - **Instalación de un comando** con `scripts/install.sh` (Linux/macOS) y `scripts/install.ps1` (Windows). Crean un venv aislado en `~/.reverse3d`, no requieren `sudo` ni administrador, detectan la GPU, instalan PyTorch CUDA en Windows y registran los agentes.
 - **`AGENTS.md`**, más `CLAUDE.md` y `GEMINI.md`: protocolo para que cualquier agente se instale solo con la URL del repo.
