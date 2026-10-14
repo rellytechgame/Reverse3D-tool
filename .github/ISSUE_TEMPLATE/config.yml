@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/voxelenterprise/reverse3d/security/advisories/new
+    about: Please report vulnerabilities privately, never in public issues.
+  - name: Voxel Enterprise
+    url: https://voxel.lat
+    about: Commercial support, integrations and custom development.

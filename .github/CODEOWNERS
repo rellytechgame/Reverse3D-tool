@@ -1,0 +1,14 @@
+# Default owners
+*                                   @voxelenterprise/maintainers
+
+# Security-sensitive paths (see policy.yaml → protected_paths)
+/reverse3d/security.py              @voxelenterprise/security @voxelenterprise/maintainers
+/reverse3d/mesh_io.py               @voxelenterprise/security @voxelenterprise/maintainers
+/reverse3d/agent/                   @voxelenterprise/security @voxelenterprise/maintainers
+/reverse3d/rendering/_blender_job.py @voxelenterprise/security
+/reverse3d/reconstruction/depth_estimation.py @voxelenterprise/security
+/.github/workflows/                 @voxelenterprise/devops @voxelenterprise/security
+/pyproject.toml                     @voxelenterprise/maintainers
+/requirements*.txt                  @voxelenterprise/maintainers
+/policy.yaml                        @voxelenterprise/security @voxelenterprise/devops
+/SECURITY.md                        @voxelenterprise/security

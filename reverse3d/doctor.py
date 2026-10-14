@@ -1,0 +1,101 @@
+"""Environment diagnostics: which optional stacks and external tools are usable."""
+
+from __future__ import annotations
+
+import importlib.util
+import platform
+import sys
+from importlib import metadata
+
+from reverse3d._version import __version__
+from reverse3d.config import Settings
+from reverse3d.errors import Reverse3DError
+from reverse3d.security import resolve_executable
+
+_PACKAGES = {
+    "numpy": "core",
+    "opencv-python-headless": "core",
+    "trimesh": "core",
+    "shapely": "core",
+    "fast-simplification": "core",
+    "open3d": "recon",
+    "torch": "depth",
+    "transformers": "depth",
+    "pyvista": "render",
+    "mcp": "mcp",
+    "anthropic": "agents",
+}
+_MODULES = {
+    "opencv-python-headless": "cv2",
+    "fast-simplification": "fast_simplification",
+}
+
+
+def _package_version(dist: str) -> str | None:
+    module = _MODULES.get(dist, dist.replace("-", "_"))
+    if importlib.util.find_spec(module) is None:
+        return None
+    try:
+        return metadata.version(dist)
+    except metadata.PackageNotFoundError:
+        return "installed"
+
+
+def environment_report(settings: Settings) -> dict[str, object]:
+    """Return a JSON-serialisable description of the runtime environment.
+
+    Never raises for missing optional components; they are reported as absent.
+    """
+    packages = {
+        name: {"extra": extra, "version": _package_version(name)}
+        for name, extra in _PACKAGES.items()
+    }
+    tools: dict[str, dict[str, object]] = {}
+    for tool, names, override in (
+        ("colmap", ["colmap", "COLMAP", "colmap.exe", "COLMAP.bat"], settings.colmap_path),
+        ("blender", ["blender", "blender.exe"], settings.blender_path),
+    ):
+        try:
+            tools[tool] = {
+                "available": True,
+                "path": str(resolve_executable(names, override, tool=tool)),
+            }
+        except Reverse3DError as exc:
+            tools[tool] = {"available": False, "hint": exc.hint}
+
+    from reverse3d.hardware import hardware_report
+
+    return {
+        "reverse3d": __version__,
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "workspace": str(settings.workspace),
+        "settings": {
+            "device": settings.device,
+            "profile": settings.profile,
+            "verbosity": settings.verbosity,
+            "toolset": settings.toolset,
+        },
+        "hardware": hardware_report(settings),
+        "limits": {
+            "max_input_mb": settings.max_input_bytes // (1024 * 1024),
+            "max_image_pixels": settings.max_image_pixels,
+            "max_images": settings.max_images,
+            "max_mesh_faces": settings.max_mesh_faces,
+            "timeout_s": settings.subprocess_timeout_s,
+        },
+        "packages": packages,
+        "external_tools": tools,
+        "capabilities": {
+            "vision": True,
+            "mesh_repair": True,
+            "primitive_fitting": True,
+            "photogrammetry": bool(tools["colmap"]["available"]),
+            "dense_meshing": packages["open3d"]["version"] is not None,
+            "depth_estimation": packages["torch"]["version"] is not None
+            and packages["transformers"]["version"] is not None,
+            "render_blender": bool(tools["blender"]["available"]),
+            "render_pyvista": packages["pyvista"]["version"] is not None,
+            "mcp_server": packages["mcp"]["version"] is not None,
+        },
+    }

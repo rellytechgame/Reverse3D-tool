@@ -1,0 +1,126 @@
+[build-system]
+# setuptools>=77 is required for PEP 639 SPDX `license` + `license-files`.
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reverse3d"
+dynamic = ["version"]
+description = "AI-agent-ready toolkit for 3D reverse engineering: image analysis, photogrammetry, mesh repair, primitive fitting and headless rendering."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Voxel Enterprise", email = "info@voxel.lat" }]
+maintainers = [{ name = "Voxel Enterprise", email = "info@voxel.lat" }]
+keywords = [
+    "3d", "photogrammetry", "reverse-engineering", "computer-vision", "mesh",
+    "colmap", "blender", "open3d", "trimesh", "mcp", "ai-agents", "function-calling",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Manufacturing",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Typing :: Typed",
+]
+# Core: everything needed for vision, mesh repair, measurement, primitive
+# fitting, silhouette extrusion, the agent tool layer and Blender rendering.
+# Heavy/optional stacks (Open3D, PyTorch, PyVista, MCP) live in extras.
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "opencv-python-headless>=4.9",
+    "pillow>=10.3",
+    "trimesh>=4.4",
+    "shapely>=2.0",
+    "mapbox-earcut>=1.0",
+    "networkx>=3.2",
+    "fast-simplification>=0.1.7",
+    "pydantic>=2.6",
+    "typer>=0.12",
+    "rich>=13.7",
+]
+
+[project.optional-dependencies]
+recon = ["open3d>=0.18"]
+depth = ["torch>=2.2", "transformers>=4.44"]
+render = ["pyvista>=0.43"]
+mcp = ["mcp>=1.2", "anyio>=4.3"]
+agents = ["anthropic>=0.40"]
+all = ["reverse3d[recon,depth,render,mcp,agents]"]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "bandit[toml]>=1.7.9",
+    "pip-audit>=2.7",
+]
+
+[project.scripts]
+reverse3d = "reverse3d.cli:main"
+
+[project.urls]
+Homepage = "https://voxel.lat"
+Documentation = "https://github.com/voxelenterprise/reverse3d/tree/main/docs"
+Repository = "https://github.com/voxelenterprise/reverse3d"
+Issues = "https://github.com/voxelenterprise/reverse3d/issues"
+Security = "https://github.com/voxelenterprise/reverse3d/security/policy"
+
+[tool.setuptools.dynamic]
+version = { attr = "reverse3d._version.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["reverse3d*"]
+
+[tool.setuptools.package-data]
+reverse3d = ["py.typed", "agent/skill/SKILL.md"]
+
+# ─── Tooling ──────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "N", "SIM", "RUF"]
+ignore = [
+    "S603",  # subprocess without shell: centralised & reviewed in reverse3d/security.py
+    "B008",  # typer.Option()/Argument() in defaults is Typer's documented idiom
+    "RUF001", "RUF002", "RUF003",  # Spanish/Unicode text in docstrings and messages
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S108"]
+"reverse3d/rendering/_blender_job.py" = ["N802"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: long running tests",
+    "integration: require external binaries (COLMAP, Blender)",
+]
+
+[tool.coverage.run]
+source = ["reverse3d"]
+omit = ["reverse3d/rendering/_blender_job.py", "reverse3d/agent/mcp_server.py"]

@@ -1,0 +1,104 @@
+version: "1.0"
+last_updated: "2026-10-14"
+owner: "Dep. Desarrollo — Voxel Enterprise"
+
+# ─── Clasificación del proyecto ───────────────────────────────────────────────
+# reverse3d es una herramienta local open source: no expone servicios de red,
+# no gestiona usuarios ni almacena datos personales. El riesgo principal es la
+# ejecución de herramientas por agentes de IA sobre archivos no confiables.
+project:
+  name: "reverse3d"
+  criticality: 1                    # 1 = interno/bajo riesgo | 2 = empresarial | 3 = crítico
+  data_classification: public
+  application_type:
+    - cli
+    - library
+    - mcp-server-stdio
+  has_pii: false
+  has_payment_data: false
+  public_facing: false              # sin puertos de red; MCP solo por stdio
+  ai_agent_integration: true        # activa controles OWASP LLM / Agentic AI
+
+# ─── Controles requeridos según criticidad ────────────────────────────────────
+required_controls:
+  sast: true                # bandit + CodeQL
+  sca: true                 # pip-audit + Dependabot
+  secret_scan: true         # gitleaks (CI + pre-commit)
+  dast: false               # no hay superficie web
+  sbom: true                # CycloneDX en CI
+  threat_model: true        # docs/security-model.md (exigido por integración con agentes)
+  pentest: false
+  artifact_signing: false   # recomendado al publicar en PyPI (Trusted Publishing + attestations)
+
+# ─── Quality gates ────────────────────────────────────────────────────────────
+quality_gates:
+  test_coverage_minimum: 70
+  critical_vulnerabilities: 0
+  high_vulnerabilities:
+    allowed: false
+    exception_required: true
+  medium_vulnerabilities:
+    sla_days: 30
+  low_vulnerabilities:
+    action: backlog
+
+# ─── Ambientes / ramas ────────────────────────────────────────────────────────
+environments:
+  main:
+    protected_branch: true
+    required_approvals: 1
+    required_checks: [lint, test, security, codeql]
+    dismiss_stale_reviews: true
+    require_conversation_resolution: true
+
+# ─── Paths protegidos (ver .github/CODEOWNERS) ────────────────────────────────
+protected_paths:
+  - path: "reverse3d/security.py"
+    owners: ["@voxelenterprise/security"]
+  - path: "reverse3d/mesh_io.py"
+    owners: ["@voxelenterprise/security"]
+  - path: "reverse3d/agent/**"
+    owners: ["@voxelenterprise/security"]
+  - path: "reverse3d/rendering/_blender_job.py"
+    owners: ["@voxelenterprise/security"]
+  - path: ".github/workflows/**"
+    owners: ["@voxelenterprise/devops", "@voxelenterprise/security"]
+  - path: "pyproject.toml"
+    owners: ["@voxelenterprise/maintainers"]
+  - path: "policy.yaml"
+    owners: ["@voxelenterprise/security", "@voxelenterprise/devops"]
+
+# ─── Patrones prohibidos ──────────────────────────────────────────────────────
+prohibited_patterns:
+  - pattern: "shell=True"
+    reason: "Inyección de comandos; usar reverse3d.security.run_command"
+  - pattern: "verify=False"
+    reason: "Deshabilita validación TLS"
+  - pattern: "trust_remote_code=True"
+    reason: "Ejecuta código arbitrario de repositorios de modelos"
+  - pattern: "allow_pickle=True"
+    reason: "Deserialización insegura"
+  - pattern: "pickle.load"
+    reason: "Deserialización insegura"
+  - pattern: "eval("
+    reason: "Ejecución dinámica de código"
+  - pattern: "permissions: write-all"
+    reason: "Permisos excesivos en GitHub Actions"
+
+# ─── Estándares de referencia ─────────────────────────────────────────────────
+security_standards:
+  asvs:
+    version: "5.0.0"
+    level: 1
+  owasp_top10: "2025"
+  owasp_llm_top10: "2025"
+  owasp_agentic: "2026"
+  frameworks:
+    - name: "NIST SSDF"
+      version: "1.1"
+
+secret_rotation:
+  prefer_short_lived: true
+  immediate_on_exposure: true
+
+active_exceptions: []

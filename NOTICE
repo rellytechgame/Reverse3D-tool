@@ -1,0 +1,19 @@
+reverse3d
+Copyright 2026 Voxel Enterprise (https://voxel.lat)
+
+This product is developed and maintained by Voxel Enterprise and is licensed
+under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party software
+--------------------
+reverse3d depends on, but does not bundle, third-party packages and tools
+including NumPy, SciPy, OpenCV, Pillow, trimesh, Shapely, NetworkX,
+fast-simplification, Pydantic, Typer and Rich (core), and optionally Open3D,
+PyTorch, Hugging Face Transformers, PyVista, the MCP Python SDK and the
+Anthropic Python SDK. External programs COLMAP and Blender are invoked as
+separate processes and are distributed under their own licenses
+(COLMAP: BSD-3-Clause; Blender: GPL-2.0-or-later).
+
+Depth Anything V2 model weights are downloaded at runtime from Hugging Face
+and keep their own licenses: the Small model is Apache-2.0; the Base and Large
+models are CC-BY-NC-4.0 (non-commercial use only).

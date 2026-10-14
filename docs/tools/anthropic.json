@@ -1,0 +1,954 @@
+[
+  {
+    "name": "reverse3d_environment_check",
+    "description": "Report which reverse3d capabilities are available on this machine (COLMAP, Blender, Open3D, depth models, PyVista, GPU), the sandbox workspace and resource limits. Call this first to plan a pipeline.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    }
+  },
+  {
+    "name": "reverse3d_run_recipe",
+    "description": "PREFERRED entry point: run a complete 3D workflow in ONE call and get a short summary (output files, dimensions, warnings); full details are saved to report.json. Use the individual tools only for custom steps.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "recipe": {
+          "description": "photos_to_model: photo folder→measured 3D model+render. plan_to_part: plan/stencil image→extruded part. scan_to_cad: mesh→clean+measure+primitives+OpenSCAD/CadQuery. photo_to_relief: one photo→2.5D relief. mesh_report: mesh→dimensions+render.",
+          "enum": [
+            "photos_to_model",
+            "plan_to_part",
+            "scan_to_cad",
+            "photo_to_relief",
+            "mesh_report"
+          ],
+          "type": "string"
+        },
+        "input_path": {
+          "description": "Photo folder (photos_to_model), image, or mesh.",
+          "type": "string"
+        },
+        "output_dir": {
+          "description": "Folder for all results (model.stl, render.png...).",
+          "type": "string"
+        },
+        "thickness": {
+          "default": 5.0,
+          "description": "plan_to_part extrusion height.",
+          "exclusiveMinimum": 0,
+          "maximum": 1000000.0,
+          "type": "number"
+        },
+        "units_per_pixel": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "plan_to_part scale, e.g. mm per pixel."
+        },
+        "scale": {
+          "default": 1.0,
+          "description": "Final uniform scale (m→mm: 1000).",
+          "exclusiveMaximum": 1000000000.0,
+          "exclusiveMinimum": 1e-09,
+          "type": "number"
+        },
+        "render": {
+          "default": true,
+          "description": "Render a PNG preview at the end.",
+          "type": "boolean"
+        },
+        "quality": {
+          "anyOf": [
+            {
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "photos_to_model quality; null = profile."
+        },
+        "force_analysis": {
+          "default": false,
+          "description": "photos_to_model: continue even if the photo check fails.",
+          "type": "boolean"
+        },
+        "overwrite": {
+          "default": false,
+          "description": "Replace existing output files. Default false.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "recipe",
+        "input_path",
+        "output_dir"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "reverse3d_configure",
+    "description": "View or change persistent settings: device (auto/cpu/gpu), profile (fast/balanced/quality), verbosity (compact/full), CPU threads. Call with no arguments to see the current settings and detected GPU.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "device": {
+          "anyOf": [
+            {
+              "enum": [
+                "auto",
+                "cpu",
+                "gpu"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Compute device preference. auto picks GPU when available."
+        },
+        "profile": {
+          "anyOf": [
+            {
+              "enum": [
+                "fast",
+                "balanced",
+                "quality"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Speed/quality trade-off for every tool."
+        },
+        "verbosity": {
+          "anyOf": [
+            {
+              "enum": [
+                "compact",
+                "full"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "compact saves tokens; full returns every detail."
+        },
+        "threads": {
+          "anyOf": [
+            {
+              "maximum": 1024,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "CPU threads; 0 = automatic."
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "reverse3d_analyze_images",
+    "description": "Assess a folder of multi-view photos before photogrammetry: sharpness, exposure, texture, keypoints and feature overlap between consecutive images. Returns per-image issues, weak links and recommendations.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "image_dir": {
+          "description": "Folder (inside the workspace) with the capture photos.",
+          "type": "string"
+        },
+        "detector": {
+          "default": "sift",
+          "description": "Feature detector.",
+          "enum": [
+            "sift",
+            "orb"
+          ],
+          "type": "string"
+        },
+        "max_pairs": {
+          "default": 60,
+          "description": "Max consecutive pairs to match.",
+          "maximum": 1000,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "image_dir"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "reverse3d_match_images",
+    "description": "Match features between two images (ratio test + RANSAC) and report how many geometrically consistent correspondences they share. Optionally draws the matches.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "image_a": {
+          "description": "First image path.",
+          "type": "string"
+        },
+        "image_b": {
+          "description": "Second image path.",
+          "type": "string"
+        },
+        "detector": {
+          "default": "sift",
+          "enum": [
+            "sift",
+            "orb"
+          ],
+          "type": "string"
+        },
+        "ratio": {
+          "default": 0.75,
+          "description": "Lowe ratio test threshold.",
+          "maximum": 0.95,
+          "minimum": 0.5,
+          "type": "number"
+        },
+        "visualization_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional .png/.jpg to save a drawing of the inlier matches."
+        },
+        "overwrite": {
+          "default": false,
+          "description": "Replace existing output files. Default false.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "image_a",
+        "image_b"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "reverse3d_extract_mask",
+    "description": "Extract a binary mask and vector contours (outer outline + holes) from a photo, technical plan, stencil or RGBA image. Writes a mask PNG, contours JSON and SVG.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "image_path": {
+          "description": "Photo, technical plan, stencil or RGBA image.",
+          "type": "string"
+        },
+        "output_dir": {
+          "description": "Folder for <stem>_mask.png, _contours.json, _contours.svg.",
+          "type": "string"
+        },
+        "method": {
+          "default": "otsu",
+          "description": "otsu: plain background; adaptive: uneven light / line drawings; canny: edge-based; alpha: use PNG transparency.",
+          "enum": [
+            "otsu",
+            "adaptive",
+            "canny",
+            "alpha"
+          ],
+          "type": "string"
+        },
+        "invert": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Force inversion; null = auto-detect."
+        },
+        "blur": {
+          "default": 5,
+          "maximum": 51,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min_area_ratio": {
+          "default": 0.001,
+          "description": "Drop regions smaller than this image fraction.",
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "simplify_ratio": {
+          "default": 0.002,
+          "description": "Contour simplification tolerance.",
+          "maximum": 0.1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "units_per_pixel": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Real-world scale, e.g. mm per pixel from a known dimension."
+        },
+        "overwrite": {
+          "default": false,
+          "description": "Replace existing output files. Default false.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "image_path",
+        "output_dir"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "reverse3d_silhouette_to_mesh",
+    "description": "Extrude the contours JSON from reverse3d_extract_mask into a 3D solid (plan to part). Use units_per_pixel for real-world scale.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "contours_path": {
+          "description": "*_contours.json produced by reverse3d_extract_mask.",
+          "type": "string"
+        },
+        "output_path": {
+          "description": "Output mesh (.stl/.obj/.ply/.glb/.gltf/.off).",
+          "type": "string"
+        },
+        "thickness": {
+          "default": 10.0,
+          "description": "Extrusion height in output units.",
+          "exclusiveMinimum": 0,
+          "maximum": 1000000.0,
+          "type": "number"
+        },
+        "units_per_pixel": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Overrides the scale stored in the JSON."
+        },
+        "overwrite": {
+          "default": false,
+          "description": "Replace existing output files. Default false.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "contours_path",
+        "output_path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "reverse3d_photogrammetry",
+    "description": "Reconstruct a 3D point cloud (and optionally a mesh) from overlapping photos using COLMAP. Long-running (minutes to hours). Run reverse3d_analyze_images first.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "image_dir": {
+          "description": "Folder with >=3 overlapping photos of the object.",
+          "type": "string"
+        },
+        "output_dir": {
+          "description": "Folder for the COLMAP workspace and outputs.",
+          "type": "string"
+        },
+        "quality": {
+          "anyOf": [
+            {
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "null = from the performance profile."
+        },
+        "matcher": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "exhaustive",
+            "sequential"
+          ],
+          "type": "string"
+        },
+        "dense": {
+          "default": "auto",
+          "description": "Dense MVS needs a CUDA build of COLMAP. auto = only if GPU.",
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "type": "string"
+        },
+        "use_gpu": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "null = from the device setting."
+        },
+        "camera_model": {
+          "default": "SIMPLE_RADIAL",
+          "enum": [
+            "SIMPLE_PINHOLE",
+            "PINHOLE",
+            "SIMPLE_RADIAL",
+            "RADIAL",
+            "OPENCV",
+            "FULL_OPENCV"
+          ],
+          "type": "string"
+        },
+        "build_mesh": {
+          "default": true,
+          "description": "Poisson-mesh the cloud (needs the [recon] extra).",
+          "type": "boolean"
+        },
+        "overwrite": {
+          "default": false,
+          "description": "Replace existing output files. Default false.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "image_dir",
+        "output_dir"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "reverse3d_estimate_depth",
+    "description": "Estimate relative depth from a single image with an allowlisted Depth Anything V2 model and optionally build a 2.5D mesh. Shape is approximate, not metric.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "image_path": {
+          "description": "Single image to estimate depth from.",
+          "type": "string"
+        },
+        "output_dir": {
+          "type": "string"
+        },
+        "model": {
+          "default": "depth-anything/Depth-Anything-V2-Small-hf",
+          "description": "Allowlisted model id.",
+          "enum": [
+            "depth-anything/Depth-Anything-V2-Small-hf",
+            "depth-anything/Depth-Anything-V2-Base-hf",
+            "depth-anything/Depth-Anything-V2-Large-hf"
+          ],
+          "type": "string"
+        },
+        "device": {
+          "default": "auto",
+          "description": "auto = from the device setting.",
+          "enum": [
+            "auto",
+            "cpu",
+            "cuda",
+            "mps"
+          ],
+          "type": "string"
+        },
+        "make_mesh": {
+          "default": true,
+          "type": "boolean"
+        },
+        "fov_deg": {
+          "default": 60.0,
+          "description": "Horizontal field of view of the camera.",
+          "maximum": 170,
+          "minimum": 10,
+          "type": "number"
+        },
+        "stride": {
+          "anyOf": [
+            {
+              "maximum": 32,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Pixel step for the mesh grid; null = profile."
+        },
+        "mask_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional mask PNG to mesh only the object."
+        },
+        "overwrite": {
+          "default": false,
+          "description": "Replace existing output files. Default false.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "image_path",
+        "output_dir"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "reverse3d_mesh_from_point_cloud",
+    "description": "Build a surface mesh from a point cloud with screened Poisson reconstruction (requires Open3D).",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "cloud_path": {
+          "description": "Point cloud (.ply/.xyz/.pcd).",
+          "type": "string"
+        },
+        "output_path": {
+          "description": "Output mesh path.",
+          "type": "string"
+        },
+        "depth": {
+          "default": 9,
+          "description": "Poisson octree depth (detail).",
+          "maximum": 12,
+          "minimum": 5,
+          "type": "integer"
+        },
+        "overwrite": {
+          "default": false,
+          "description": "Replace existing output files. Default false.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cloud_path",
+        "output_path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "reverse3d_clean_mesh",
+    "description": "Repair a mesh: remove degenerate faces and debris, fix normals, fill holes, smooth, decimate, align (OBB/PCA), place on ground and rescale. Returns before/after stats.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "input_path": {
+          "description": "Input mesh.",
+          "type": "string"
+        },
+        "output_path": {
+          "description": "Output mesh (.stl/.obj/.ply/.glb/.gltf/.off).",
+          "type": "string"
+        },
+        "keep_largest_only": {
+          "default": false,
+          "type": "boolean"
+        },
+        "min_component_ratio": {
+          "default": 0.01,
+          "exclusiveMaximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "fill_holes": {
+          "default": true,
+          "type": "boolean"
+        },
+        "max_hole_edges": {
+          "default": 200,
+          "maximum": 100000,
+          "minimum": 3,
+          "type": "integer"
+        },
+        "fix_normals": {
+          "default": true,
+          "type": "boolean"
+        },
+        "smooth_iterations": {
+          "default": 0,
+          "maximum": 200,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "target_faces": {
+          "anyOf": [
+            {
+              "minimum": 4,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Decimate to this many faces."
+        },
+        "align": {
+          "default": "none",
+          "enum": [
+            "none",
+            "center",
+            "obb",
+            "pca"
+          ],
+          "type": "string"
+        },
+        "ground": {
+          "default": false,
+          "description": "Translate so min Z = 0.",
+          "type": "boolean"
+        },
+        "scale": {
+          "default": 1.0,
+          "description": "Uniform scale (e.g. 1000 for m→mm).",
+          "exclusiveMaximum": 1000000000.0,
+          "exclusiveMinimum": 1e-09,
+          "type": "number"
+        },
+        "overwrite": {
+          "default": false,
+          "description": "Replace existing output files. Default false.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "input_path",
+        "output_path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "reverse3d_measure_mesh",
+    "description": "Measure a mesh: bounding boxes (axis-aligned and minimum oriented), surface area, volume, watertightness, components and open boundary edges.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "input_path": {
+          "description": "Mesh to measure.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "input_path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "reverse3d_fit_primitives",
+    "description": "Detect planes, cylinders and spheres (RANSAC) on a mesh or point cloud and report their parameters (radii, axes, normals). Optionally writes OpenSCAD/CadQuery code.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "input_path": {
+          "description": "Mesh or point cloud.",
+          "type": "string"
+        },
+        "kinds": {
+          "items": {
+            "enum": [
+              "plane",
+              "cylinder",
+              "sphere"
+            ],
+            "type": "string"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "type": "array"
+        },
+        "sample_count": {
+          "anyOf": [
+            {
+              "maximum": 500000,
+              "minimum": 100,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "null = profile."
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inlier distance; null = 1% of bbox diagonal."
+        },
+        "max_primitives": {
+          "default": 8,
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "min_inlier_ratio": {
+          "default": 0.05,
+          "exclusiveMaximum": 1,
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        "parametric_output": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional .scad (OpenSCAD) or .py (CadQuery) file to generate."
+        },
+        "overwrite": {
+          "default": false,
+          "description": "Replace existing output files. Default false.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "input_path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "reverse3d_render",
+    "description": "Render a mesh to PNG headlessly with Blender (Cycles/Eevee/Workbench) or PyVista, with studio lighting, material color and optional turntable frames.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "mesh_path": {
+          "description": "Mesh to render.",
+          "type": "string"
+        },
+        "output_path": {
+          "description": "Output .png (turntables add _0000 suffixes).",
+          "type": "string"
+        },
+        "backend": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "blender",
+            "pyvista"
+          ],
+          "type": "string"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "maximum": 8192,
+              "minimum": 64,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "null = profile."
+        },
+        "height": {
+          "anyOf": [
+            {
+              "maximum": 8192,
+              "minimum": 64,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "null = profile."
+        },
+        "engine": {
+          "default": "cycles",
+          "enum": [
+            "cycles",
+            "eevee",
+            "workbench"
+          ],
+          "type": "string"
+        },
+        "device": {
+          "default": "auto",
+          "description": "auto = device setting.",
+          "enum": [
+            "auto",
+            "cpu",
+            "gpu"
+          ],
+          "type": "string"
+        },
+        "samples": {
+          "anyOf": [
+            {
+              "maximum": 4096,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "null = profile."
+        },
+        "color": {
+          "default": "#9aa4b2",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "metallic": {
+          "default": 0.0,
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "roughness": {
+          "default": 0.45,
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "background": {
+          "default": "#f4f5f7",
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "transparent": {
+          "default": false,
+          "type": "boolean"
+        },
+        "elevation_deg": {
+          "default": 25.0,
+          "maximum": 89,
+          "minimum": -89,
+          "type": "number"
+        },
+        "azimuth_deg": {
+          "default": 35.0,
+          "maximum": 360,
+          "minimum": 0,
+          "type": "number"
+        },
+        "turntable_frames": {
+          "default": 0,
+          "maximum": 360,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ground": {
+          "default": true,
+          "type": "boolean"
+        },
+        "shading": {
+          "default": "auto",
+          "enum": [
+            "auto",
+            "smooth",
+            "flat"
+          ],
+          "type": "string"
+        },
+        "overwrite": {
+          "default": false,
+          "description": "Replace existing output files. Default false.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "mesh_path",
+        "output_path"
+      ],
+      "type": "object"
+    }
+  }
+]

@@ -1,0 +1,19 @@
+name: Feature request
+description: Propose a new capability, tool or integration
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+  - type: textarea
+    id: agent
+    attributes:
+      label: Agent integration
+      description: Should this be exposed as an agent tool? Which arguments and side effects?

@@ -1,0 +1,23 @@
+# Core runtime dependencies of reverse3d (mirror of [project.dependencies]).
+# For reproducible installs generate a hash-pinned lock file:
+#   pip-compile --generate-hashes -o requirements.lock pyproject.toml
+numpy>=1.26
+scipy>=1.11
+opencv-python-headless>=4.9
+pillow>=10.3
+trimesh>=4.4
+shapely>=2.0
+mapbox-earcut>=1.0
+networkx>=3.2
+fast-simplification>=0.1.7
+pydantic>=2.6
+typer>=0.12
+rich>=13.7
+
+# Optional extras (install with: pip install -e ".[recon,depth,render,mcp,agents]")
+# open3d>=0.18          -> [recon]  dense meshing (Poisson) of point clouds
+# torch>=2.2            -> [depth]  monocular depth estimation
+# transformers>=4.44    -> [depth]
+# pyvista>=0.43         -> [render] lightweight offscreen renderer (Blender fallback)
+# mcp>=1.2, anyio>=4.3  -> [mcp]    Model Context Protocol server
+# anthropic>=0.40       -> [agents] Claude tool-use example
