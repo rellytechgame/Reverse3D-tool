@@ -196,7 +196,11 @@ else
   warn "uv unavailable: falling back to a Python already installed on this computer."
 fi
 
-venv_version() { [ -x "$VPY" ] && "$VPY" -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")' 2>/dev/null || true; }
+venv_version() {
+  if [ -x "$VPY" ]; then
+    "$VPY" -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")' 2>/dev/null || true
+  fi
+}
 
 case ",$EXTRAS," in *,recon,*) WANT_O3D=1 ;; *) WANT_O3D=0 ;; esac
 CURRENT="$(venv_version)"
