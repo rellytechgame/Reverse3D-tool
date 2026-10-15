@@ -4,8 +4,8 @@
 
 | Versión | Soporte de seguridad |
 |---------|----------------------|
-| 0.1.x   | ✅ |
-| < 0.1   | ❌ |
+| 0.3.x   | ✅ |
+| < 0.3   | ❌ |
 
 ## Reportar una vulnerabilidad
 

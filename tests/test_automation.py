@@ -362,6 +362,57 @@ class TestSetupAgents:
         skill = fake_home / ".claude" / "skills" / "reverse3d" / "SKILL.md"
         assert skill.read_text(encoding="utf-8").startswith("---\nname: reverse3d")
 
+    def test_claude_code_auto_approve_preserves_settings(
+        self, fake_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(setup_agents, "_claude_cli", lambda: Path("claude"))
+        monkeypatch.setattr(
+            setup_agents,
+            "run_command",
+            lambda exe, args, **_: subprocess.CompletedProcess(args, 0, "", ""),
+        )
+        settings_file = fake_home / ".claude" / "settings.json"
+        settings_file.parent.mkdir()
+        settings_file.write_text(
+            json.dumps({"model": "opus", "permissions": {"allow": ["Bash(git status)"]}})
+        )
+        for _ in range(2):  # idempotent: the rule is added once
+            setup_agents.setup_agents("claude-code", workspace=tmp_path / "ws")
+        data = json.loads(settings_file.read_text())
+        assert data["model"] == "opus"
+        assert data["permissions"]["allow"] == ["Bash(git status)", "mcp__reverse3d"]
+        assert list(settings_file.parent.glob("settings.json.reverse3d-backup-*"))
+
+        setup_agents.setup_agents("claude-code", workspace=tmp_path / "ws", remove=True)
+        data = json.loads(settings_file.read_text())
+        assert data["permissions"]["allow"] == ["Bash(git status)"]
+
+    def test_auto_approve_can_be_disabled(self, fake_home: Path, tmp_path: Path) -> None:
+        (fake_home / ".claude").mkdir()
+        setup_agents.setup_agents(
+            "claude-code,gemini", workspace=tmp_path / "ws", auto_approve=False
+        )
+        assert not (fake_home / ".claude" / "settings.json").exists()
+        gemini = json.loads((fake_home / ".gemini" / "settings.json").read_text())
+        assert "trust" not in gemini["mcpServers"]["reverse3d"]
+
+    def test_gemini_trusts_only_reverse3d(self, fake_home: Path, tmp_path: Path) -> None:
+        cfg = fake_home / ".gemini" / "settings.json"
+        cfg.parent.mkdir()
+        cfg.write_text(json.dumps({"mcpServers": {"other": {"command": "x"}}}))
+        setup_agents.setup_agents("gemini", workspace=tmp_path / "ws")
+        servers = json.loads(cfg.read_text())["mcpServers"]
+        assert servers["reverse3d"]["trust"] is True
+        assert "trust" not in servers["other"]
+
+    def test_unparseable_claude_settings_left_alone(self, fake_home: Path, tmp_path: Path) -> None:
+        settings_file = fake_home / ".claude" / "settings.json"
+        settings_file.parent.mkdir()
+        settings_file.write_text("{ // my comments\n}")
+        result = setup_agents.setup_agents("claude-code", workspace=tmp_path / "ws")[0]
+        assert settings_file.read_text() == "{ // my comments\n}"
+        assert "mcp__reverse3d" in result.detail
+
     def test_unknown_agent(self, tmp_path: Path) -> None:
         with pytest.raises(InputValidationError):
             setup_agents.setup_agents("notepad", workspace=tmp_path)

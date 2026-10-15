@@ -7,45 +7,62 @@ reverse3d is a local toolkit by Voxel Enterprise for 3D modeling and reverse eng
 
 ## 1. "Install reverse3d from <repo URL>" — installation protocol
 
-Follow these steps without asking unless something fails. Each command is idempotent and safe to re-run.
+The user is often **not technical**. Rules:
 
-**Step 1 — run the installer for the user's OS.** Use one command, with no sudo or admin rights:
+- **Do not ask questions.** Use the defaults. Add flags only when the user's message asked for something (table below).
+- **Run exactly one command.** No pre-checks (Python, git, GPU, disk): the installer handles everything and needs no admin rights, Python or git.
+- The user approves one command once. Do not split the install into several commands, which would mean several permission prompts.
+
+**Step 1 — run the installer for the user's OS:**
 
 | OS | Command |
 |----|---------|
+| Windows | `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/scripts/install.ps1 \| iex"` |
 | Linux / macOS | `curl -fsSL https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/scripts/install.sh \| bash` |
-| Windows (PowerShell) | `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/scripts/install.ps1 \| iex"` |
-| Repo already cloned | Linux/macOS: `bash scripts/install.sh --source .` · Windows: `powershell -ExecutionPolicy Bypass -File scripts/install.ps1 -Source .` |
+| Repo already cloned | Windows: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1 -Source .` · Linux/macOS: `bash scripts/install.sh --source .` |
 
-Add options only when the user asked for them:
+**It takes 10–20 minutes**, because it downloads Python, PyTorch, Blender and COLMAP.
+- Run it **in the background** if your harness supports it (Claude Code: `run_in_background`), or with your longest timeout.
+- If it is cut off or times out, **run the same command again**: finished steps are skipped and it continues.
+- Never prompt the user while it runs.
+
+Add flags only when the user asked:
 
 | User says | bash flag | PowerShell flag |
 |-----------|-----------|-----------------|
-| "everything" / "AI depth" / "full" | `--full` | `-Full` |
+| "light" / "less space" / "no AI depth" | `--lite` | `-Lite` |
+| "only the basics" | `--minimal` | `-Minimal` |
+| "no Blender / no COLMAP" | `--no-tools` | `-NoTools` |
 | "use GPU" / "use CPU" | `--device gpu` / `--device cpu` | `-Device gpu` / `-Device cpu` |
 | "fast" / "max quality" | `--profile fast` / `--profile quality` | `-Performance fast` / `-Performance quality` |
 | "save tokens" | `--toolset lean` | `-Toolset lean` |
+| "ask me before each tool" | `--no-auto-approve` | `-NoAutoApprove` |
 | A specific workspace folder | `--workspace DIR` | `-Workspace DIR` |
 | Only some agents | `--agents claude-code,cursor` | `-Agents claude-code,cursor` |
 
-With curl, pass flags like this: `curl -fsSL …/install.sh | bash -s -- --full --device gpu`.
-For the PowerShell one-liner with flags: `& ([scriptblock]::Create((irm …/install.ps1))) -Full -Device gpu`.
+With curl, pass flags like this: `curl -fsSL …/install.sh | bash -s -- --lite --device cpu`.
+For the PowerShell one-liner with flags: `powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((irm …/install.ps1))) -Lite -Device cpu"`.
 
-**What the installer does:**
-- creates `~/.reverse3d/venv`;
-- installs the package;
+**What the installer does (never prompts):**
+- gets a private Python 3.12 through uv;
+- creates `~/.reverse3d/venv` and installs every module (an optional one that fails does not stop it);
 - detects NVIDIA or Apple GPUs;
+- downloads portable Blender and COLMAP, SHA-256 verified;
 - links the `reverse3d` command;
-- runs `reverse3d setup`, which registers the MCP server in every agent found: Claude Code (plus a skill), Claude Desktop, Cursor, Windsurf, VS Code/Copilot, Gemini CLI, OpenCode and Codex. It backs up each config file it modifies.
+- runs `reverse3d setup`. This registers the MCP server in every agent found (Claude Code plus a skill, Claude Desktop, Cursor, Windsurf, VS Code/Copilot, Gemini CLI, OpenCode and Codex) and pre-approves the reverse3d tools where the agent supports it (Claude Code, Gemini CLI). It backs up each config file it modifies.
 
-**Step 2 — verify:** `reverse3d doctor` (or `~/.reverse3d/venv/bin/reverse3d doctor`; on Windows `%USERPROFILE%\.reverse3d\venv\Scripts\reverse3d.exe doctor`).
+**Step 2 — check the result.** The output ends with `RESULT: OK` (or `RESULT: CHECK`). The same data is in `~/.reverse3d/install-status.json`: `ok`, `missing`, `command`, `workspace`. Do not run anything else to verify.
 
-**Step 3 — tell the user:** "Restart your agent to load the reverse3d tools. Your workspace is `~/reverse3d-workspace`; put your photos, plans and models there."
-If you cannot restart yourself, you can already use the CLI in this session (see §3).
+**Step 3 — tell the user, in their language and in plain words:**
+- "Listo. Cierra y vuelve a abrir tu agente para cargar reverse3d."
+- "Tu carpeta de trabajo es `<workspace>`: pon ahí tus fotos, planos o modelos."
+- If `missing` is not empty, say in one sentence what is unavailable and why. For example: "COLMAP needs administrator rights on Linux: `sudo apt install colmap`."
 
-If the installer fails:
-1. Show the last error lines.
-2. Python missing → ask the user to install Python 3.10+.
+If you cannot restart yourself, you can already use the CLI in this session (see §3) with the `command` path from the status file.
+
+If the installer fails (`ok: false` or no `RESULT:` line):
+1. Run the same command once more; most failures are network hiccups.
+2. If it fails again, show the `error` from the status file and the last lines of `~/.reverse3d/install.log`.
 3. If you cannot edit an agent config, run `reverse3d setup --snippets`. It prints the exact JSON or TOML to paste by hand.
 
 Uninstall: `install.sh --uninstall` / `install.ps1 -Uninstall`. This keeps the workspace and settings.

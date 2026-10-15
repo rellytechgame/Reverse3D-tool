@@ -23,6 +23,18 @@ Safety rules (configuration files belong to the user and to other tools):
 * ``auto`` only touches agents whose configuration folder already exists.
 * The server command is the absolute path of the current Python interpreter,
   so it works without PATH changes and always uses this installation.
+
+Auto-approval (``auto_approve=True``, the default) pre-authorises **only the
+reverse3d tools**, so non-technical users are not asked to confirm every call:
+
+* Claude Code: ``mcp__reverse3d`` in ``permissions.allow`` of
+  ``~/.claude/settings.json``.
+* Gemini CLI: ``"trust": true`` on the reverse3d server entry.
+
+This is safe because every tool is confined to the workspace sandbox, never
+overwrites without ``overwrite=true`` and can only change harmless settings
+(see ``docs/security-model.md``). Other agents have no per-server switch; they
+ask once and offer "always allow".
 """
 
 from __future__ import annotations
@@ -42,6 +54,7 @@ from reverse3d.errors import InputValidationError, Reverse3DError
 from reverse3d.security import resolve_executable, run_command
 
 SERVER_NAME = "reverse3d"
+CLAUDE_PERMISSION = f"mcp__{SERVER_NAME}"  # matches every tool of the server
 _CODEX_BEGIN = "# >>> reverse3d (managed by `reverse3d setup`) >>>"
 _CODEX_END = "# <<< reverse3d <<<"
 
@@ -181,27 +194,32 @@ def _write_text(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
+def _read_json_object(path: Path) -> dict[str, Any] | str:
+    """The file's top-level object (``{}`` if missing), or a reason it can't be used."""
+    if not path.exists():
+        return {}
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8") or "{}")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return "Could not parse the file (comments?)"
+    if not isinstance(loaded, dict):
+        return "Top-level JSON is not an object"
+    return loaded
+
+
 def _setup_json(
-    target: _Target, env: dict[str, str], *, remove: bool, dry_run: bool
+    target: _Target, env: dict[str, str], *, remove: bool, dry_run: bool, auto_approve: bool
 ) -> SetupResult:
     path = target.path()
-    data: dict[str, Any] = {}
-    if path.exists():
-        try:
-            loaded = json.loads(path.read_text(encoding="utf-8") or "{}")
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            snippet = json.dumps(
-                {_container_key(target.style): {SERVER_NAME: _entry(target.style, env)}}, indent=2
-            )
-            return SetupResult(
-                target.key,
-                "skipped",
-                f"Could not parse the file (comments?). Add this manually:\n{snippet}",
-                str(path),
-            )
-        if not isinstance(loaded, dict):
-            return SetupResult(target.key, "skipped", "Top-level JSON is not an object", str(path))
-        data = loaded
+    trust = auto_approve and target.key == "gemini"
+    loaded = _read_json_object(path)
+    if isinstance(loaded, str):
+        entry = _entry(target.style, env) | ({"trust": True} if trust else {})
+        snippet = json.dumps({_container_key(target.style): {SERVER_NAME: entry}}, indent=2)
+        return SetupResult(
+            target.key, "skipped", f"{loaded}. Add this manually:\n{snippet}", str(path)
+        )
+    data = loaded
 
     key = _container_key(target.style)
     container = data.get(key)
@@ -215,6 +233,9 @@ def _setup_json(
         container.pop(SERVER_NAME)
     else:
         new = _entry(target.style, env)
+        if trust:
+            # Gemini CLI: skip the confirmation prompt for this server's tools only.
+            new["trust"] = True
         if container.get(SERVER_NAME) == new:
             return SetupResult(target.key, "unchanged", "already up to date", str(path))
         container[SERVER_NAME] = new
@@ -312,8 +333,43 @@ def _skill_dest() -> Path:
     return _home() / ".claude" / "skills" / "reverse3d" / "SKILL.md"
 
 
+def _claude_settings() -> Path:
+    return _home() / ".claude" / "settings.json"
+
+
+def _claude_permissions(*, remove: bool) -> str:
+    """Add/remove ``mcp__reverse3d`` in Claude Code's allow list; returns a note."""
+    path = _claude_settings()
+    data = _read_json_object(path)
+    if isinstance(data, str):
+        return f'{data}: add "{CLAUDE_PERMISSION}" to permissions.allow in {path} by hand'
+    permissions = data.get("permissions")
+    if permissions is not None and not isinstance(permissions, dict):
+        return f"'permissions' in {path} is not an object; auto-approval skipped"
+    permissions = dict(permissions or {})
+    allow = permissions.get("allow")
+    if allow is not None and not isinstance(allow, list):
+        return f"'permissions.allow' in {path} is not a list; auto-approval skipped"
+    allow = list(allow or [])
+
+    if remove:
+        if CLAUDE_PERMISSION not in allow:
+            return ""
+        allow = [rule for rule in allow if rule != CLAUDE_PERMISSION]
+    else:
+        if CLAUDE_PERMISSION in allow:
+            return "tools already auto-approved"
+        allow.append(CLAUDE_PERMISSION)
+    permissions["allow"] = allow
+    data["permissions"] = permissions
+    if path.exists():
+        _backup(path)
+    _write_text(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    return "auto-approval removed" if remove else "reverse3d tools auto-approved"
+
+
 def _setup_claude_code(
-    env: dict[str, str], *, remove: bool, dry_run: bool, install_skill: bool
+    env: dict[str, str], *, remove: bool, dry_run: bool, install_skill: bool, auto_approve: bool
 ) -> SetupResult:
     cli = _claude_cli()
     detected = cli is not None or (_home() / ".claude").is_dir()
@@ -354,6 +410,10 @@ def _setup_claude_code(
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(skill_source(), dest)
         notes.append(f"skill installed at {dest}")
+    if remove or auto_approve:
+        note = _claude_permissions(remove=remove)
+        if note:
+            notes.append(note)
     status = "removed" if remove else ("configured" if cli else "skipped")
     return SetupResult("claude-code", status, "; ".join(notes))
 
@@ -384,9 +444,24 @@ def setup_agents(
     remove: bool = False,
     dry_run: bool = False,
     install_skill: bool = True,
+    auto_approve: bool = True,
     extra_env: dict[str, str] | None = None,
 ) -> list[SetupResult]:
-    """Register (or remove) the MCP server in the selected agents."""
+    """Register (or remove) the MCP server in the selected agents.
+
+    Args:
+        agents: ``auto`` (detected agents), ``all`` or a comma list of agent keys.
+        workspace: Sandbox folder the server is pinned to.
+        remove: Unregister instead of register (also removes auto-approval).
+        dry_run: Report what would change without writing anything.
+        install_skill: Copy the Claude Code skill.
+        auto_approve: Pre-authorise the reverse3d tools where the agent supports
+            it per server (Claude Code, Gemini CLI).
+        extra_env: Additional environment for the server entry.
+
+    Raises:
+        InputValidationError: ``agents`` names an unknown agent.
+    """
     selected, only_detected = parse_agents(agents)
     workspace = workspace.expanduser().resolve()
     if not remove and not dry_run:
@@ -399,7 +474,11 @@ def setup_agents(
             if key == "claude-code":
                 results.append(
                     _setup_claude_code(
-                        env, remove=remove, dry_run=dry_run, install_skill=install_skill
+                        env,
+                        remove=remove,
+                        dry_run=dry_run,
+                        install_skill=install_skill,
+                        auto_approve=auto_approve,
                     )
                 )
                 continue
@@ -407,8 +486,14 @@ def setup_agents(
             if only_detected and not target.detect().is_dir():
                 results.append(SetupResult(key, "not_detected"))
                 continue
-            handler = _setup_codex if target.style == "codex" else _setup_json
-            results.append(handler(target, env, remove=remove, dry_run=dry_run))
+            if target.style == "codex":
+                results.append(_setup_codex(target, env, remove=remove, dry_run=dry_run))
+            else:
+                results.append(
+                    _setup_json(
+                        target, env, remove=remove, dry_run=dry_run, auto_approve=auto_approve
+                    )
+                )
         except (Reverse3DError, OSError) as exc:
             message = exc.message if isinstance(exc, Reverse3DError) else str(exc)
             results.append(SetupResult(key, "error", message))

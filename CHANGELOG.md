@@ -2,6 +2,26 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.3.0] — 2026-10-15
+
+### Instalación sin preguntas
+- **El instalador nunca pregunta nada** y no necesita administrador, Python ni git:
+  - consigue un **Python 3.12 privado con uv**;
+  - instala desde el ZIP de GitHub;
+  - nunca usa `sudo` interactivo.
+- **Todo por defecto:** todos los módulos (render, mallado Open3D, IA de profundidad) y las herramientas externas **Blender 5.2.2** y **COLMAP 4.2.1** en versión portable en `~/.reverse3d/tools`, con descargas verificadas por **SHA-256 fijado en el script**.
+  - `--lite` instala todo menos PyTorch.
+  - `--no-tools` omite Blender y COLMAP.
+- **PyTorch adecuado a la máquina:** CUDA si hay NVIDIA; si no, la versión CPU, hasta 10 veces más ligera.
+- **Resistente:** un módulo opcional que falla no detiene la instalación. Si un agente corta el instalador por tiempo, volver a ejecutarlo **continúa donde se quedó**; una reejecución completa tarda unos segundos.
+- **Resultado legible por agentes:** `~/.reverse3d/install-status.json` (`ok`, `missing`, `command`, `workspace`), `~/.reverse3d/install.log` y una línea final `RESULT: OK|CHECK`.
+- **Herramientas aprobadas de antemano:** `reverse3d setup` añade `mcp__reverse3d` al allow-list de Claude Code y `trust` a la entrada de Gemini CLI. Así el agente no pide permiso en cada uso; se desactiva con `--no-auto-approve`.
+- `AGENTS.md` pide a los agentes un único comando, sin preguntas, en segundo plano y reintentándolo si se corta. El README incluye una frase para pegar que ya da el permiso.
+
+### Corregido
+- La GPU NVIDIA no se detectaba en el instalador de Windows.
+- Render de Blender descentrado o recortado: la cámara apunta al centro real de la pieza y encuadra con el ángulo de visión más estrecho. Verificado con Blender 5.2.2.
+
 ## [0.2.0] — 2026-10-14
 
 ### Autoría y procedencia

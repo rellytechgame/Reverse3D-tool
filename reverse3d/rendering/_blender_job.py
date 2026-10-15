@@ -83,9 +83,12 @@ def import_mesh(path: str) -> bpy.types.Object:
     return obj
 
 
-def normalize(obj: bpy.types.Object, ground: bool) -> float:
-    """Center the object, scale its largest dimension to 2 units and return the
-    bounding-sphere radius."""
+def normalize(obj: bpy.types.Object, ground: bool) -> tuple[float, float]:
+    """Center the object and scale its largest dimension to 2 units.
+
+    Returns the bounding-sphere radius and the height of the object's centre
+    (non-zero when it rests on the ground), which is where the camera aims.
+    """
     corners = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
     lo = Vector((min(c.x for c in corners), min(c.y for c in corners), min(c.z for c in corners)))
     hi = Vector((max(c.x for c in corners), max(c.y for c in corners), max(c.z for c in corners)))
@@ -97,7 +100,8 @@ def normalize(obj: bpy.types.Object, ground: bool) -> float:
         obj.location.z = -lo.z * scale
     obj.scale = (scale, scale, scale)
     bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-    return ((hi - lo) * scale).length / 2
+    center_z = (hi.z - lo.z) * scale / 2 if ground else 0.0
+    return ((hi - lo) * scale).length / 2, center_z
 
 
 def shade(obj: bpy.types.Object, mode: str) -> None:
@@ -152,17 +156,21 @@ def setup_world(job: dict) -> None:
     bg.inputs["Strength"].default_value = 0.6
 
 
-def setup_camera(radius: float, job: dict) -> bpy.types.Object:
+def setup_camera(radius: float, center_z: float, job: dict) -> bpy.types.Object:
     rig = bpy.data.objects.new("reverse3d_rig", None)
     bpy.context.collection.objects.link(rig)
-    rig.location = (0, 0, radius * 0.5 if job["ground"] else 0)
+    rig.location = (0, 0, center_z)
 
     cam_data = bpy.data.cameras.new("reverse3d_camera")
     cam_data.lens = 50
     cam = bpy.data.objects.new("reverse3d_camera", cam_data)
     bpy.context.collection.objects.link(cam)
+    # camera.angle is the FOV of the longer image side; fit the sphere in the shorter one.
+    width, height = int(job["width"]), int(job["height"])
     fov = cam_data.angle
-    distance = radius / math.sin(fov / 2) * 1.15
+    if width != height:
+        fov = 2 * math.atan(math.tan(fov / 2) * min(width, height) / max(width, height))
+    distance = radius / math.sin(fov / 2) * 1.1
     elev, azim = math.radians(job["elevation_deg"]), math.radians(job["azimuth_deg"])
     # Parented with an identity parent-inverse: this location is relative to the rig.
     cam.location = (
@@ -236,7 +244,7 @@ def main() -> None:
     job = _read_job()
     bpy.ops.wm.read_factory_settings(use_empty=True)
     obj = import_mesh(job["mesh"])
-    radius = normalize(obj, job["ground"])
+    radius, center_z = normalize(obj, job["ground"])
     shade(obj, job["shading"])
     make_material(obj, job)
     setup_world(job)
@@ -244,7 +252,7 @@ def main() -> None:
     add_light("key", (r * 3, -r * 3, r * 4), 800 * r * r, r * 2)
     add_light("fill", (-r * 4, -r * 2, r * 2), 300 * r * r, r * 3)
     add_light("rim", (0, r * 4, r * 3), 500 * r * r, r * 2)
-    rig = setup_camera(radius, job)
+    rig = setup_camera(radius, center_z, job)
     setup_ground(job)
     setup_render(job)
 

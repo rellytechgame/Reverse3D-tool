@@ -830,6 +830,11 @@ def setup(
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change."),
     uninstall: bool = typer.Option(False, "--uninstall", help="Remove reverse3d from agents."),
     skill: bool = typer.Option(True, help="Install the Claude Code skill."),
+    auto_approve: bool = typer.Option(
+        True,
+        help="Pre-approve the reverse3d tools (Claude Code, Gemini CLI) so the agent "
+        "does not ask on every call. The tools stay confined to the workspace.",
+    ),
     show_snippets: bool = typer.Option(False, "--snippets", help="Print manual config snippets."),
 ) -> None:
     """Register the reverse3d MCP server in your AI agents (one command, idempotent)."""
@@ -850,7 +855,12 @@ def setup(
         if not dry_run and not uninstall:
             stored = update_config({k: v for k, v in updates.items() if v is not None})
         results = setup_agents(
-            agents, workspace=ws, remove=uninstall, dry_run=dry_run, install_skill=skill
+            agents,
+            workspace=ws,
+            remove=uninstall,
+            dry_run=dry_run,
+            install_skill=skill,
+            auto_approve=auto_approve,
         )
         configured = [r.agent for r in results if r.status in ("configured", "unchanged")]
         if dry_run:

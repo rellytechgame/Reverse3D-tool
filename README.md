@@ -46,20 +46,29 @@ Desarrollado por **[Voxel Enterprise](https://voxel.lat)**
 
 ## ⚡ Instalación en 1 minuto
 
-**Requisito único:** [Python 3.10 o superior](https://www.python.org/downloads/). En Windows, marca *"Add Python to PATH"* al instalarlo. No hace falta ser administrador.
+**No necesitas instalar nada antes**: ni Python, ni Git, ni permisos de administrador. Solo conexión a internet y unos 4 GB libres.
 
 ### Opción 1 — Pídeselo a tu agente (recomendado)
 
-Copia y pega esto en tu agente (Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Copilot, Windsurf…):
+Copia y pega **esta frase** en tu agente de IA (Claude Code, Codex, Cursor, Gemini CLI, OpenCode, Copilot, Windsurf…):
 
 ```text
-Instala reverse3d desde https://github.com/rellytechgame/Reverse3D-tool siguiendo su AGENTS.md
+Instala reverse3d desde https://github.com/rellytechgame/Reverse3D-tool siguiendo su AGENTS.md. Tienes mi permiso para ejecutar el instalador; no me hagas preguntas.
 ```
 
-El agente lee [`AGENTS.md`](AGENTS.md) y hace el resto por su cuenta: instala, detecta tu GPU, se registra en todos tus agentes y verifica la instalación. Puedes añadir preferencias en la misma frase:
+Eso es todo. Tu agente te pedirá permiso **una sola vez**, para ejecutar el instalador; acéptalo, por ejemplo con *"Sí"* o *"Permitir siempre"*. A partir de ahí no te preguntará nada más:
+
+- instala Python, todos los módulos, **Blender** (renders fotorrealistas) y **COLMAP** (fotos → 3D);
+- detecta tu tarjeta gráfica (GPU) y la usa si existe;
+- conecta reverse3d con **todos** tus agentes de IA y deja sus herramientas **aprobadas**, para que no te pidan permiso en cada uso;
+- comprueba que todo funciona.
+
+Tarda entre 10 y 20 minutos según tu conexión. Al terminar, **cierra y vuelve a abrir tu agente**.
+
+¿Quieres algo concreto? Dilo en la misma frase:
 
 ```text
-Instala reverse3d desde https://github.com/rellytechgame/Reverse3D-tool con todo (--full), usando GPU y perfil de máxima calidad
+Instala reverse3d desde https://github.com/rellytechgame/Reverse3D-tool siguiendo su AGENTS.md, en modo ligero y usando solo CPU. Tienes mi permiso; no me hagas preguntas.
 ```
 
 ### Opción 2 — Un comando en la terminal
@@ -79,24 +88,33 @@ irm https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/scripts/
 Con opciones:
 
 ```bash
-# Linux/macOS: todo + GPU + calidad máxima
-curl -fsSL https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/scripts/install.sh | bash -s -- --full --device gpu --profile quality
+# Linux/macOS: GPU + calidad máxima
+curl -fsSL https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/scripts/install.sh | bash -s -- --device gpu --profile quality
 ```
 
 ```powershell
-# Windows: todo + GPU + calidad máxima
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/scripts/install.ps1))) -Full -Device gpu -Performance quality
+# Windows: GPU + calidad máxima
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/scripts/install.ps1))) -Device gpu -Performance quality
 ```
 
 > ¿Prefieres revisar el script antes de ejecutarlo? Descárgalo, léelo y ejecútalo: `curl -fsSLO …/install.sh && less install.sh && bash install.sh`.
 
 ### Qué hace el instalador
 
-1. Busca Python ≥ 3.10. Si pides mallado Open3D, prefiere 3.12/3.11.
-2. Crea un entorno aislado en `~/.reverse3d/venv`, sin tocar tu Python del sistema y sin `sudo`.
-3. Instala reverse3d, más PyTorch con CUDA en Windows si hay GPU NVIDIA y pediste `--full`.
-4. Deja el comando `reverse3d` disponible: `~/.local/bin` en Linux/macOS, PATH de usuario en Windows.
-5. Ejecuta **`reverse3d setup`**, que registra el servidor MCP en **todos los agentes que encuentre**:
+**Nunca hace preguntas** y **no necesita administrador**. Si se interrumpe, por ejemplo porque el agente lo corta por tiempo, basta con volver a ejecutarlo: **continúa donde se quedó**.
+
+1. **Python:** descarga [uv](https://docs.astral.sh/uv/) y con él un Python 3.12 privado en `~/.reverse3d`. No toca el Python de tu sistema; si uv no está disponible, usa un Python ≥ 3.10 que ya tengas.
+2. **Entorno aislado** en `~/.reverse3d/venv`.
+3. **reverse3d con todos los módulos:**
+   - mallado (Open3D);
+   - render (PyVista);
+   - IA de profundidad (PyTorch): con CUDA si hay GPU NVIDIA y, si no, la versión CPU, mucho más ligera.
+
+   Si un módulo opcional falla, la instalación **sigue** y lo indica al final.
+4. **Blender 5.2 y COLMAP 4.2 portables** en `~/.reverse3d/tools`. Las versiones están fijadas y cada descarga se verifica con su huella **SHA-256** oficial.
+   - En Linux no existe un COLMAP portable: se instala con `apt` o `brew` solo si no hace falta contraseña. Si no se puede, el instalador lo indica y todo lo demás funciona.
+5. Deja el comando `reverse3d` disponible: `~/.local/bin` en Linux/macOS, PATH de usuario en Windows.
+6. Ejecuta **`reverse3d setup`**, que registra el servidor MCP en **todos los agentes que encuentre**:
 
 | Agente | Dónde se registra |
 |--------|-------------------|
@@ -111,15 +129,27 @@ curl -fsSL https://raw.githubusercontent.com/rellytechgame/Reverse3D-tool/main/s
 
 Cada archivo modificado se **respalda antes** (`*.reverse3d-backup-<fecha>`). Solo se toca la entrada `reverse3d` y, si un archivo no se puede leer con seguridad (por ejemplo, JSON con comentarios), **no se modifica** y se muestra el bloque para pegarlo a mano.
 
-6. Verifica todo con `reverse3d doctor`. **Reinicia tu agente** y listo.
+   **Herramientas aprobadas de antemano**, para que el agente no te pregunte en cada uso:
+
+   | Agente | Aprobación automática |
+   |--------|-----------------------|
+   | Claude Code | `mcp__reverse3d` en `permissions.allow` de `~/.claude/settings.json` |
+   | Gemini CLI | `"trust": true` en la entrada `reverse3d` |
+   | Resto | No tienen ese ajuste: la primera vez elige **"Permitir siempre"** |
+
+   Solo se aprueban las herramientas de reverse3d, que trabajan **únicamente dentro del workspace** (ver [Seguridad](#seguridad)). Para desactivarlo usa `--no-auto-approve`.
+
+7. Verifica todo con `reverse3d doctor` y guarda el resultado en `~/.reverse3d/install-status.json`. El registro completo queda en `~/.reverse3d/install.log`. **Reinicia tu agente** y listo.
 
 #### Opciones del instalador
 
 | bash (`install.sh`) | PowerShell (`install.ps1`) | Efecto |
 |---------------------|----------------------------|--------|
-| *(sin opciones)* | *(sin opciones)* | Núcleo + MCP + render ligero (PyVista) |
-| `--full` | `-Full` | + mallado Poisson (Open3D) + IA de profundidad (PyTorch, ~2 GB) |
-| `--minimal` | `-Minimal` | Solo núcleo + MCP |
+| *(sin opciones)* | *(sin opciones)* | **Todo**: núcleo, MCP, render, mallado, IA de profundidad, Blender y COLMAP |
+| `--lite` | `-Lite` | Todo menos la IA de profundidad (PyTorch); ahorra hasta ~2.5 GB |
+| `--minimal` | `-Minimal` | Solo núcleo + MCP, sin herramientas externas |
+| `--no-tools` | `-NoTools` | No instalar Blender ni COLMAP |
+| `--no-auto-approve` | `-NoAutoApprove` | Que los agentes pregunten antes de cada herramienta |
 | `--with recon,depth` | `-With recon,depth` | Extras a elección |
 | `--device auto\|cpu\|gpu` | `-Device …` | Dispositivo por defecto |
 | `--profile fast\|balanced\|quality` | `-Performance …` | Perfil de rendimiento |
@@ -275,16 +305,16 @@ reverse3d config set verbosity full     # si alguna vez necesitas el detalle com
 
 ## Herramientas externas opcionales
 
-reverse3d funciona sin ellas, pero desbloquean más potencia. Comprueba en cualquier momento con `reverse3d doctor` o con el comando `estado`.
+**El instalador las instala solo** (salvo `--no-tools`/`--minimal`). reverse3d funciona sin ellas, pero desbloquean más potencia. Comprueba en cualquier momento con `reverse3d doctor` o con el comando `estado`.
 
 | Herramienta | Para qué | Windows | macOS | Linux |
 |-------------|----------|---------|-------|-------|
-| **Blender 3.6+** | Render fotorrealista | `winget install BlenderFoundation.Blender` | `brew install --cask blender` | `sudo snap install blender --classic` |
-| **COLMAP** | Fotogrametría (fotos → 3D) | [Releases](https://github.com/colmap/colmap/releases) (build **CUDA** si tienes NVIDIA) | `brew install colmap` | `sudo apt install colmap` |
-| **Open3D** | Mallado de nubes de puntos | instalador `--full` (Python ≤ 3.12) | ídem | ídem |
-| **PyTorch** | Profundidad con IA | instalador `--full` (CUDA automático) | ídem (MPS) | ídem (CUDA incluido) |
+| **Blender 5.2** (vale 3.6+) | Render fotorrealista | ✅ automático (portable) | ✅ automático en Apple Silicon; Intel: `brew` si existe | ✅ automático en x86-64 (portable) |
+| **COLMAP 4.2** | Fotogrametría (fotos → 3D) | ✅ automático; build **CUDA** si hay NVIDIA | ✅ automático en Apple Silicon; Intel: `brew` si existe | Solo con `apt`/`dnf`/`brew` sin contraseña; si no: `sudo apt install colmap` |
+| **Open3D** | Mallado de nubes de puntos | ✅ automático (Python 3.12 privado) | ídem | ídem |
+| **PyTorch** | Profundidad con IA | ✅ automático (CUDA si hay NVIDIA) | ✅ automático (MPS) | ✅ automático (CUDA o CPU) |
 
-Si Blender o COLMAP no están en el PATH: `reverse3d config set blender "C:\Program Files\Blender Foundation\Blender 4.2\blender.exe"` (igual con `colmap`).
+Si quieres usar un Blender o COLMAP propio: `reverse3d config set blender "C:\Program Files\Blender Foundation\Blender 4.2\blender.exe"` (igual con `colmap`).
 
 ---
 
@@ -411,8 +441,10 @@ Más detalles, cómo reportar suplantaciones y la lista de blindaje del propieta
 | El agente no ve las herramientas | Reinicia el agente. Ejecuta `reverse3d setup` y revisa la columna `status`. Usa `reverse3d setup --snippets` para configurarlo a mano. |
 | `reverse3d: command not found` | Abre una terminal nueva o usa `~/.reverse3d/venv/bin/reverse3d` (Windows: `%USERPROFILE%\.reverse3d\venv\Scripts\reverse3d.exe`). |
 | `security_violation` | El archivo está fuera del workspace: muévelo a `~/reverse3d-workspace`. |
-| `dependency_missing` | Falta Blender, COLMAP o un extra: el `hint` dice cómo instalarlo. Reinstala con `--full` si es un extra. |
-| No usa la GPU | Comprueba `reverse3d config show` → `hardware`. Para fotogrametría, COLMAP debe ser un build CUDA. En Windows, la IA con CUDA requiere `--full`. |
+| La instalación se cortó a medias | Vuelve a ejecutar el mismo comando: continúa donde se quedó. El detalle está en `~/.reverse3d/install.log`. |
+| `dependency_missing` | Falta Blender, COLMAP o un extra: vuelve a ejecutar el instalador sin `--lite`/`--minimal`. `~/.reverse3d/install-status.json` → `missing` dice qué falta y por qué. |
+| No usa la GPU | Comprueba `reverse3d config show` → `hardware`. Si instalaste antes de tener los drivers NVIDIA, vuelve a ejecutar el instalador. |
+| El agente pide permiso en cada herramienta | Claude Code y Gemini CLI quedan aprobados solos. En los demás, elige **"Permitir siempre"** la primera vez. |
 | Fotogrametría lenta o con timeout | Usa el perfil `fast`, `reverse3d config set timeout_s 7200` y menos fotos o fotos más pequeñas. |
 | `photos_to_model` dice que las fotos no sirven | Sigue las recomendaciones (más fotos, más nitidez, más solape) o usa `force_analysis: true`. |
 | Mi archivo de configuración tiene comentarios | `setup` no lo modifica; pega el bloque que te muestra. |
