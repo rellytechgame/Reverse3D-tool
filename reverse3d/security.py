@@ -67,7 +67,12 @@ def resolve_in_workspace(path: str | os.PathLike[str], workspace: Path) -> Path:
         SecurityViolationError: if the resolved path escapes the workspace.
     """
     root = workspace.resolve()
-    candidate = Path(path).expanduser()
+    raw = os.fspath(path)
+    if os.sep == "/" and "\\" in raw:
+        # Agents often send Windows-style paths. Treat "\" as a separator on
+        # POSIX too, so "..\\..\\x" cannot pass as a literal file name.
+        raw = raw.replace("\\", "/")
+    candidate = Path(raw).expanduser()
     if not candidate.is_absolute():
         candidate = root / candidate
     resolved = candidate.resolve()

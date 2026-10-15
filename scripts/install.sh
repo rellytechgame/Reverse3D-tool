@@ -38,9 +38,13 @@ set -euo pipefail
 
 # ─── Pinned downloads (bump version + SHA-256 together) ───────────────────────
 UV_VERSION="0.12.19"
+# shellcheck disable=SC2034  # read indirectly through ${!UV_KEY}
 UV_SHA_x86_64_linux="23bf5552d220e0842b65c862097b2ebaeba0064b74eda5e565e77fd25969d8c8"
+# shellcheck disable=SC2034
 UV_SHA_aarch64_linux="0804e9b164c64b6914182d5920c08551958a095986f10a3731056df701126436"
+# shellcheck disable=SC2034
 UV_SHA_x86_64_darwin="cb5fa57bafe68fc0fb94b17f06bee0b0b9a7feb94ccbd110445afa0696e39273"
+# shellcheck disable=SC2034
 UV_SHA_aarch64_darwin="a9a8df1eedeb192f2e47e40e2faabfb387db4b850209118786d42f89dde3e0ba"
 BLENDER_VERSION="5.2.2"
 BLENDER_SHA_linux_x64="84098912789dc450e95697c4184fb8a90acbe5111c2ba4aede3fecb57806a168"
@@ -118,7 +122,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
   if [ -x "$EXE" ]; then
     "$EXE" setup --uninstall --agents all || true
   fi
-  rm -rf "$VENV" "$TOOLS" "$DOWNLOADS" "$R3D_HOME/bin" "$R3D_HOME/python"
+  rm -rf "$VENV" "$TOOLS" "$DOWNLOADS" "${R3D_HOME:?}/bin" "${R3D_HOME:?}/python"
   rm -f "$HOME/.local/bin/reverse3d"
   say "Uninstalled. Your workspace ($WORKSPACE) and $R3D_HOME/config.json were kept."
   exit 0
