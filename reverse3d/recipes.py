@@ -12,6 +12,8 @@ plan_to_part      plan/stencil → mask → extrusion → clean → measure → 
 scan_to_cad       mesh/scan   → clean/align → measure → primitives → OpenSCAD + CadQuery → render
 photo_to_relief   one photo   → depth → 2.5D mesh → clean → render
 mesh_report       mesh        → measure → render
+auto              anything    → detects the input and runs the right recipe, retrying
+                                with other parameters when that can help (see autopilot)
 
 Device (CPU/GPU) and speed/quality come from ``Settings.device`` and
 ``Settings.profile`` unless explicitly overridden.
@@ -28,7 +30,12 @@ from pathlib import Path
 from typing import Any, Literal, TypeVar
 
 from reverse3d.config import Settings
-from reverse3d.errors import DependencyMissingError, InputValidationError, ProcessingError
+from reverse3d.errors import (
+    CaptureQualityError,
+    DependencyMissingError,
+    InputValidationError,
+    ProcessingError,
+)
 from reverse3d.hardware import torch_device, wants_gpu
 from reverse3d.profiles import profile_values
 from reverse3d.reverse_eng.measure import MeshStats
@@ -37,7 +44,7 @@ from reverse3d.security import prepare_output_dir
 logger = logging.getLogger(__name__)
 
 RecipeName = Literal[
-    "photos_to_model", "plan_to_part", "scan_to_cad", "photo_to_relief", "mesh_report"
+    "photos_to_model", "plan_to_part", "scan_to_cad", "photo_to_relief", "mesh_report", "auto"
 ]
 RECIPES: tuple[RecipeName, ...] = (
     "photos_to_model",
@@ -45,7 +52,9 @@ RECIPES: tuple[RecipeName, ...] = (
     "scan_to_cad",
     "photo_to_relief",
     "mesh_report",
+    "auto",
 )
+MaskMethod = Literal["otsu", "adaptive", "canny", "alpha"]
 _T = TypeVar("_T")
 
 
@@ -60,6 +69,10 @@ class RecipeOptions:
     quality: Literal["low", "medium", "high"] | None = None
     force_analysis: bool = False
     overwrite: bool = False
+    #: plan_to_part: how the drawing is separated from the background.
+    mask_method: MaskMethod = "otsu"
+    #: mesh repair strength; "strong" closes much larger holes.
+    repair: Literal["normal", "strong"] = "normal"
 
 
 @dataclass
@@ -106,6 +119,7 @@ def _clean(
     fill_holes: bool = True,
     align: Literal["none", "obb"] = "obb",
     keep_largest: bool = False,
+    repair: Literal["normal", "strong"] = "normal",
 ) -> MeshStats:
     """Repair + align. ``keep_largest`` only for photogrammetry/relief output,
     where floating fragments are noise; plans and scans may have several real
@@ -124,6 +138,7 @@ def _clean(
                 align=align,
                 ground=align != "none",
                 scale=scale,
+                max_hole_edges=2000 if repair == "strong" else 200,
             ),
             overwrite=overwrite,
         ),
@@ -177,7 +192,7 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
     run.details["analysis"] = analysis.to_dict()
     if not analysis.suitable_for_photogrammetry:
         if not opt.force_analysis:
-            raise ProcessingError(
+            raise CaptureQualityError(
                 "The photo set is not suitable for photogrammetry: "
                 + " ".join(analysis.recommendations),
                 hint="Improve the capture, or pass force_analysis=true to try anyway.",
@@ -211,6 +226,7 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
         scale=opt.scale,
         overwrite=opt.overwrite,
         keep_largest=True,
+        repair=opt.repair,
     )
     return _measure(run, model)
 
@@ -224,6 +240,7 @@ def _plan_to_part(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
             src,
             run.out / "mask",
             run.settings,
+            method=opt.mask_method,
             units_per_pixel=opt.units_per_pixel,
             overwrite=opt.overwrite,
         ),
@@ -249,7 +266,7 @@ def _scan_to_cad(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
     from reverse3d.reverse_eng.parametric import export_parametric
 
     model = run.out / "model.stl"
-    _clean(run, src, model, scale=opt.scale, overwrite=opt.overwrite)
+    _clean(run, src, model, scale=opt.scale, overwrite=opt.overwrite, repair=opt.repair)
     stats = _measure(run, model)
     samples = profile_values(run.settings).fit_samples
     fit = run.step("fit", lambda: fit_primitives_file(model, run.settings, sample_count=samples))
@@ -332,6 +349,10 @@ def run_recipe(
         InputValidationError: unknown recipe or invalid options.
         Reverse3DError: any step failure (the error names the failing step).
     """
+    if recipe == "auto":
+        from reverse3d.autopilot import auto_run
+
+        return auto_run(input_path, output_dir, settings, options)
     if recipe not in _RECIPES:
         raise InputValidationError(
             f"Unknown recipe '{recipe}'.", hint=f"Use one of: {', '.join(RECIPES)}"

@@ -72,6 +72,7 @@ Uninstall: `install.sh --uninstall` / `install.ps1 -Uninstall`. This keeps the w
 ## 2. Using reverse3d (MCP tools `reverse3d_*`)
 
 - **Prefer `reverse3d_run_recipe`:** one call runs a whole workflow and returns a short summary. Full details go to `report.json`.
+  - `auto` — **anything** (photo folder, drawing, photo, mesh, point cloud) → detects what it is, runs the right workflow and retries with other settings when that helps. Also writes `RESUMEN.md` and returns `next_steps`. Use it when unsure.
   - `photos_to_model` — photo folder → measured model + render
   - `plan_to_part` — plan, stencil or silhouette image → extruded part (`thickness`, `units_per_pixel`)
   - `scan_to_cad` — mesh → clean + dimensions + primitives + OpenSCAD/CadQuery
@@ -80,7 +81,9 @@ Uninstall: `install.sh --uninstall` / `install.ps1 -Uninstall`. This keeps the w
 - **Paths are relative to the workspace.** Save user attachments into the workspace first.
 - **Device and speed:** `reverse3d_configure {"device":"gpu"|"cpu"|"auto"}`, `{"profile":"fast"|"balanced"|"quality"}`. Call it with `{}` to show settings and the detected GPU.
 - **Errors:** on `ok:false`, read `error.hint`, fix and retry once.
-- **Slash commands (MCP prompts):** `fotos-a-3d`, `plano-a-pieza`, `escaneo-a-cad`, `foto-a-relieve`, `medir`, `usar-gpu`, `usar-cpu`, `rendimiento`, `estado`.
+- **Offline:** everything works without internet and switches to offline mode by itself. If the AI depth model is reported missing, ask the user to run `reverse3d offline prepare` once while online. `reverse3d offline status` shows readiness.
+- **Hands-free autopilot:** `reverse3d watch` processes whatever the user drops in `<workspace>/bandeja` into `<workspace>/resultados/`.
+- **Slash commands (MCP prompts):** `procesar`, `fotos-a-3d`, `plano-a-pieza`, `escaneo-a-cad`, `foto-a-relieve`, `medir`, `usar-gpu`, `usar-cpu`, `rendimiento`, `estado`.
 
 ## 3. CLI fallback (no MCP, or before restarting)
 

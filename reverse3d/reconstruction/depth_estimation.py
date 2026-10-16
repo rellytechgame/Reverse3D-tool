@@ -9,6 +9,8 @@ Supply-chain controls (OWASP LLM03 / ASI04):
 * ``trust_remote_code`` is never enabled, so no repository Python code runs.
 * Weights are loaded with ``use_safetensors=True``: pickle-based ``.bin``
   checkpoints (arbitrary code execution on load) are refused.
+* Models are loaded from ``~/.reverse3d/models`` (see :mod:`reverse3d.offline`):
+  once downloaded, depth estimation works without internet.
 
 The geometric part (:func:`depth_to_mesh`) is pure NumPy/trimesh and works
 without the extra, e.g. with depth maps from other sources.
@@ -63,7 +65,7 @@ class DepthResult:
         return asdict(self)
 
 
-def _load_pipeline(model: str, device: str) -> Any:
+def _load_pipeline(model: str, device: str, settings: Settings | None = None) -> Any:
     try:
         from transformers import pipeline
     except ImportError as exc:
@@ -71,16 +73,34 @@ def _load_pipeline(model: str, device: str) -> Any:
             "transformers/torch are required for depth estimation.",
             hint='pip install "reverse3d[depth]"',
         ) from exc
+    from reverse3d.offline import force_offline_env, is_offline, resolve_model
+
+    settings = settings or Settings.load()
+    local_path = resolve_model(model, settings)
+    if is_offline(settings):
+        force_offline_env()
+    try:  # keep CLI/agent output clean: no download/loading progress bars
+        from transformers.utils import logging as hf_logging
+
+        hf_logging.disable_progress_bar()
+        hf_logging.set_verbosity_error()
+    except ImportError:  # pragma: no cover - very old transformers
+        pass
     return pipeline(
         task="depth-estimation",
-        model=model,
+        model=str(local_path),
         device=device,
         trust_remote_code=False,
         model_kwargs={"use_safetensors": True},
     )
 
 
-def predict_depth(rgb: np.ndarray, model: str = DEFAULT_MODEL, device: str = "cpu") -> np.ndarray:
+def predict_depth(
+    rgb: np.ndarray,
+    model: str = DEFAULT_MODEL,
+    device: str = "cpu",
+    settings: Settings | None = None,
+) -> np.ndarray:
     """Run the depth model on an RGB uint8 image and return a float32 map of the
     same height/width (relative units, semantics per :data:`ALLOWED_MODELS`)."""
     if model not in ALLOWED_MODELS:
@@ -92,7 +112,7 @@ def predict_depth(rgb: np.ndarray, model: str = DEFAULT_MODEL, device: str = "cp
         raise InputValidationError("device must be cpu, cuda or mps.")
     from PIL import Image
 
-    pipe = _load_pipeline(model, device)
+    pipe = _load_pipeline(model, device, settings)
     output = pipe(Image.fromarray(rgb))
     predicted = output["predicted_depth"]
     depth = np.asarray(predicted.squeeze().detach().cpu().numpy(), dtype=np.float32)
@@ -208,7 +228,7 @@ def estimate_depth(
         if mask.shape != rgb.shape[:2]:
             raise InputValidationError("Mask size must match the image size.")
 
-    depth = predict_depth(rgb, model=model, device=device)
+    depth = predict_depth(rgb, model=model, device=device, settings=settings)
     out_dir = prepare_output_dir(output_dir)
     stem = Path(image_path).stem
 

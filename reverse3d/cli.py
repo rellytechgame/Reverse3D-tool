@@ -153,6 +153,7 @@ class RecipeChoice(str, Enum):
     scan_to_cad = "scan_to_cad"
     photo_to_relief = "photo_to_relief"
     mesh_report = "mesh_report"
+    auto = "auto"
 
 
 class ToolsetChoice(str, Enum):
@@ -741,6 +742,163 @@ def run_cmd(
         overwrite=force,
     )
     _run(ctx, lambda s: run_recipe(recipe.value, input_path, output_dir, s, options))
+
+
+@app.command("auto")
+def auto_cmd(
+    ctx: typer.Context,
+    input_path: Path = typer.Argument(
+        ..., metavar="INPUT", help="Anything: photo folder, drawing, photo or 3D file."
+    ),
+    output_dir: Path | None = typer.Argument(
+        None, help="Results folder (default: <workspace>/resultados/<name>)."
+    ),
+    thickness: float = typer.Option(5.0, min=0.000001, help="Extrusion height if it is a drawing."),
+    units_per_pixel: float | None = typer.Option(None, min=0, help="Drawing scale (mm/px)."),
+    scale: float = typer.Option(1.0, min=1e-9, help="Final uniform scale (m→mm: 1000)."),
+    render: bool = typer.Option(True, help="Render a PNG preview at the end."),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite outputs."),
+) -> None:
+    """Detect what INPUT is and process it automatically (no recipe to choose)."""
+    from reverse3d.autopilot import auto_run
+    from reverse3d.recipes import RecipeOptions
+    from reverse3d.watch import OUTBOX_NAME
+
+    options = RecipeOptions(
+        thickness=thickness,
+        units_per_pixel=units_per_pixel,
+        scale=scale,
+        render=render,
+        overwrite=force,
+    )
+
+    def job(s: Settings) -> Any:
+        name = input_path.stem if input_path.is_file() else input_path.name
+        out = output_dir or (s.workspace / OUTBOX_NAME / name)
+        return auto_run(input_path, out, s, options)
+
+    _run(ctx, job)
+
+
+_WATCH_TEXT = {
+    "detected": "📥 Nuevo: {item} (esperando a que termine de copiarse…)",
+    "processing": "⚙️  Procesando {item}…",
+    "done": "✅ {item} listo → {output_dir}",
+    "failed": "⚠️  {item} no se pudo procesar. {advice}\n"
+    "    Lo moví a «bandeja/_revisar» junto a un LEEME.txt.",
+    "retry": "⏳ {item} todavía está en uso; lo intento de nuevo enseguida.",
+}
+
+
+def _say(text: str) -> None:
+    _err.print(text, markup=False, highlight=False, soft_wrap=True)
+
+
+def _short(path: object, base: Path) -> str:
+    try:
+        return str(Path(str(path)).resolve().relative_to(base.resolve()))
+    except ValueError:
+        return str(path)
+
+
+def _print_watch_event(event: dict[str, Any], base: Path) -> None:
+    template = _WATCH_TEXT.get(str(event.get("event")))
+    if template is None:
+        return
+    fields: dict[str, Any] = {"advice": "", **event}
+    if "output_dir" in fields:
+        fields["output_dir"] = _short(fields["output_dir"], base)
+    _say(template.format(**fields))
+    if event.get("event") == "done":
+        dims = event.get("dimensions") or {}
+        size = dims.get("size_obb")
+        if isinstance(size, list) and size:
+            _say("    Tamaño: " + " × ".join(f"{float(v):.1f}" for v in size))
+        if event.get("summary"):
+            _say(f"    Abre {_short(event['summary'], base)} para ver medidas y siguiente paso.")
+
+
+@app.command("watch")
+def watch_cmd(
+    ctx: typer.Context,
+    inbox: Path | None = typer.Argument(
+        None, help="Folder to watch (default: <workspace>/bandeja)."
+    ),
+    outbox: Path | None = typer.Option(
+        None, "--out", "-o", help="Results folder (default: <workspace>/resultados)."
+    ),
+    interval: float = typer.Option(2.0, min=0.2, max=3600, help="Seconds between checks."),
+    once: bool = typer.Option(False, "--once", help="Process what is in the inbox now and exit."),
+) -> None:
+    """Autopilot: drop photos, drawings or 3D files in a folder and get results automatically."""
+    from reverse3d.offline import is_offline
+    from reverse3d.watch import WatchFolders, watch
+
+    state = _state(ctx)
+    settings = state.settings
+    folders = WatchFolders.for_workspace(settings)
+    if inbox is not None:
+        folders.inbox = inbox.expanduser().resolve()
+    if outbox is not None:
+        folders.outbox = outbox.expanduser().resolve()
+    folders.ensure()
+
+    def on_event(event: dict[str, Any]) -> None:
+        if state.json_output:
+            sys.stdout.write(json.dumps(event, ensure_ascii=False, default=str) + "\n")
+            sys.stdout.flush()
+        else:
+            _print_watch_event(event, settings.workspace)
+
+    if not state.json_output:
+        import logging
+
+        if settings.log_level != "DEBUG":
+            logging.getLogger("reverse3d").setLevel(logging.WARNING)  # keep the console readable
+        _say(f"👀 Vigilando: {folders.inbox}")
+        _say(f"📂 Resultados en: {folders.outbox}")
+        _say("Suelta ahí una carpeta de fotos, un plano, una foto o un STL/OBJ/PLY/GLB.")
+        if is_offline(settings):
+            _say("🔌 Sin internet: trabajando en modo offline.")
+        if not once:
+            _say("Pulsa Ctrl+C para detener.\n")
+    try:
+        events = watch(folders, settings, interval_s=interval, once=once, on_event=on_event)
+    except KeyboardInterrupt:
+        _say("\nDetenido. ¡Hasta luego!")
+        raise typer.Exit(0) from None
+    if once and any(e.get("event") == "failed" for e in events):
+        raise typer.Exit(1)
+
+
+# ─── offline ──────────────────────────────────────────────────────────────────
+
+
+offline_app = typer.Typer(
+    help="Work without internet: readiness check and AI model download.", no_args_is_help=True
+)
+app.add_typer(offline_app, name="offline")
+
+
+@offline_app.command("status")
+def offline_status_cmd(ctx: typer.Context) -> None:
+    """Show whether there is internet and what works offline on this computer."""
+    from reverse3d.offline import offline_status
+
+    _run(ctx, offline_status)
+
+
+@offline_app.command("prepare")
+def offline_prepare_cmd(
+    ctx: typer.Context,
+    include_non_commercial: bool = typer.Option(
+        False, "--all", help="Also download the larger CC-BY-NC (non-commercial) depth models."
+    ),
+) -> None:
+    """Download the AI models now so reverse3d works later without internet."""
+    from reverse3d.offline import prepare
+
+    _run(ctx, lambda s: prepare(s, include_non_commercial=include_non_commercial))
 
 
 # ─── configuration ────────────────────────────────────────────────────────────

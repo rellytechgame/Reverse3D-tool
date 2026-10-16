@@ -21,6 +21,15 @@ def _isolated_user_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("REVERSE3D_HOME", str(tmp_path / "_r3d_home"))
 
 
+@pytest.fixture(autouse=True)
+def _no_network_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests never depend on the real network: the connectivity probe says "online"."""
+    from reverse3d import offline
+
+    monkeypatch.setattr(offline, "_probe", lambda: True)
+    monkeypatch.setattr(offline, "_cache", None)
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(workspace=tmp_path.resolve(), subprocess_timeout_s=30)

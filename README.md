@@ -26,6 +26,8 @@ Desarrollado por **[Voxel Enterprise](https://voxel.lat)**
 - [🗣️ Úsalo con tu agente](#️-úsalo-con-tu-agente)
 - [🚀 GPU o CPU](#-gpu-o-cpu)
 - [💰 Ahorro de tokens](#-ahorro-de-tokens)
+- [🔌 Sin internet (modo offline)](#-sin-internet-modo-offline)
+- [🤖 Piloto automático](#-piloto-automático)
 - [Capacidades](#capacidades)
 - [Herramientas externas opcionales](#herramientas-externas-opcionales)
 - [Referencia de la CLI](#referencia-de-la-cli)
@@ -206,6 +208,7 @@ En los clientes que muestran prompts MCP como comandos (Claude Code: `/mcp__reve
 
 | Comando | Qué hace |
 |---------|----------|
+| `procesar <entrada>` | Lo que sea → detecta qué es y lo procesa solo |
 | `fotos-a-3d <carpeta>` | Fotos → modelo 3D medido + render |
 | `plano-a-pieza <imagen> [espesor] [mm_por_pixel]` | Plano o careta → pieza extruida |
 | `escaneo-a-cad <malla>` | Malla → limpieza + cotas + primitivas + OpenSCAD/CadQuery |
@@ -219,6 +222,7 @@ En los clientes que muestran prompts MCP como comandos (Claude Code: `/mcp__reve
 
 | Receta | Entrada | Resultado en `output_dir/` |
 |--------|---------|----------------------------|
+| `auto` | **Lo que sea** | Detecta el tipo, elige la receta y reintenta si sirve; añade `RESUMEN.md` |
 | `photos_to_model` | Carpeta de fotos | `model.stl`, `render.png`, `report.json`, nube de puntos |
 | `plan_to_part` | Plano, careta o silueta | `model.stl`, `render.png`, contornos SVG |
 | `scan_to_cad` | STL/OBJ/PLY/GLB | `model.stl`, `cad.scad`, `cad.py` (CadQuery), `render.png` |
@@ -283,6 +287,57 @@ reverse3d config set verbosity full     # si alguna vez necesitas el detalle com
 
 ---
 
+## 🔌 Sin internet (modo offline)
+
+reverse3d **funciona sin conexión**. Todo el cálculo es local (OpenCV, COLMAP, Open3D, trimesh, Blender). Lo único que se descarga es el modelo de IA de profundidad, y **el instalador lo deja descargado**.
+
+- **Cambio automático:** si el equipo no detecta internet, reverse3d pasa solo a modo offline. No tienes que hacer nada.
+- **Comprobar:** `reverse3d offline status` dice si hay conexión y qué funciona sin ella. `reverse3d doctor` lo incluye en su informe.
+- **Preparar a mano:** `reverse3d offline prepare` descarga los modelos (solo `safetensors`, en una revisión fijada y revisada) en `~/.reverse3d/models`. Usa `--all` para incluir también los modelos grandes CC-BY-NC.
+- **Forzarlo:** `reverse3d config set offline on`, para no usar nunca la red. Con `off` reverse3d asume que hay conexión y no la comprueba; el valor por defecto es `auto`.
+
+| Sin internet funciona | Necesita |
+|-----------------------|----------|
+| Medir, reparar, primitivas, CAD (OpenSCAD/CadQuery), plano → pieza | nada |
+| Fotogrametría (fotos → 3D) y render | COLMAP / Blender instalados (el instalador lo hace) |
+| Foto → relieve con IA | el modelo descargado una vez (el instalador lo hace) |
+
+> Tu agente de IA (Claude, Cursor, Copilot…) sí necesita internet. Sin agente, usa el **piloto automático** o la CLI.
+
+## 🤖 Piloto automático
+
+**No hace falta elegir receta ni tener un agente.** reverse3d detecta qué le das y lo procesa:
+
+```bash
+reverse3d auto bandeja/taza          # carpeta de fotos → modelo 3D medido
+reverse3d auto plano.png             # plano o silueta → pieza extruida
+reverse3d auto pieza.stl             # malla → reparación + cotas + CAD
+```
+
+O déjalo trabajando solo con la **carpeta vigilada**:
+
+```bash
+reverse3d watch
+```
+
+1. Suelta en `~/reverse3d-workspace/bandeja` una carpeta de fotos, un plano, una foto o un STL/OBJ/PLY/GLB.
+2. Cuando termina de copiarse, se procesa solo. El resultado aparece en `resultados/<nombre>/`, con un **`RESUMEN.md`** que explica qué detectó, las medidas, los archivos y el siguiente paso.
+3. El original se mueve a `bandeja/_procesado/`. Si algo falla, va a `bandeja/_revisar/` con un `LEEME.txt` que dice qué corregir.
+
+**Qué decide solo:**
+
+| Detecta | Hace | Si falla, reintenta con |
+|---------|------|-------------------------|
+| Carpeta con 3 o más fotos | `photos_to_model` | calidad `high` |
+| Imagen de alto contraste o con fondo transparente | `plan_to_part` | otros métodos de máscara (adaptativo, bordes) |
+| Foto normal | `photo_to_relief` | — |
+| Malla (STL/OBJ/GLB/PLY con caras) | `scan_to_cad` | reparación fuerte si no queda cerrada |
+| Nube de puntos (XYZ/PCD/PLY sin caras) | mallado Poisson + `scan_to_cad` | — |
+
+Si las fotos están borrosas o falta una herramienta, **no reintenta en vano**: te explica qué cambiar. Funciona sin internet y sin modelo de IA, porque son reglas, no adivinanzas.
+
+---
+
 ## Capacidades
 
 | Área | Qué hace | Tecnología |
@@ -297,7 +352,9 @@ reverse3d config set verbosity full     # si alguna vez necesitas el detalle com
 | 📐 **Primitivas** | Planos, cilindros y esferas con RANSAC (radios, ejes, normales) | NumPy |
 | 🧩 **CAD paramétrico** | Código **OpenSCAD** y **CadQuery** editable | — |
 | 🎬 **Render** | Blender headless (Cycles/Eevee, turntable) o PyVista | Blender `bpy` / PyVista |
-| 🤖 **Agentes** | 14 herramientas, 9 comandos `/`, recetas, autoconfiguración en 8 agentes | MCP + JSON Schema |
+| 🤖 **Agentes** | 14 herramientas, 10 comandos `/`, recetas, autoconfiguración en 8 agentes | MCP + JSON Schema |
+| 🛰️ **Piloto automático** | Detección de la entrada, reintentos inteligentes, carpeta vigilada, `RESUMEN.md` | Reglas deterministas, sin IA |
+| 🔌 **Offline** | Detección de conexión, cambio automático, modelos fijados por revisión | `~/.reverse3d/models` |
 
 **Formatos:** imágenes `png jpg jpeg tif tiff bmp webp` · mallas `stl obj ply glb gltf off` · nubes `ply xyz pcd`.
 
@@ -326,7 +383,10 @@ reverse3d [--json] [--device auto|cpu|gpu] [--profile fast|balanced|quality] [--
 
 | Comando | Descripción |
 |---------|-------------|
-| `run <receta> ENTRADA SALIDA` | Flujos completos: `photos_to_model`, `plan_to_part`, `scan_to_cad`, `photo_to_relief`, `mesh_report` |
+| `auto ENTRADA [SALIDA]` | Piloto automático: detecta la entrada y la procesa (salida por defecto: `resultados/<nombre>`) |
+| `watch [BANDEJA] [--out DIR] [--once]` | Carpeta vigilada: procesa sola lo que dejes en `bandeja/` |
+| `offline status` · `offline prepare [--all]` | Qué funciona sin internet · descargar los modelos de IA |
+| `run <receta> ENTRADA SALIDA` | Flujos completos: `auto`, `photos_to_model`, `plan_to_part`, `scan_to_cad`, `photo_to_relief`, `mesh_report` |
 | `setup [--agents …] [--dry-run] [--uninstall] [--snippets]` | Registra o elimina reverse3d en tus agentes |
 | `config show \| set K V \| unset K \| path` | Configuración persistente (`~/.reverse3d/config.json`) |
 | `doctor` | Capacidades, GPU, extras, binarios y límites |
@@ -354,6 +414,7 @@ reverse3d [--json] [--device auto|cpu|gpu] [--profile fast|balanced|quality] [--
 | `profile` | `REVERSE3D_PROFILE` | `balanced` | `fast` · `balanced` · `quality` |
 | `verbosity` | `REVERSE3D_VERBOSITY` | `compact` | `compact` (ahorra tokens) · `full` |
 | `toolset` | `REVERSE3D_TOOLSET` | `full` | `full` (14 herramientas) · `lean` (5) |
+| `offline` | `REVERSE3D_OFFLINE` | `auto` | `auto` (detecta la conexión) · `on` (nunca usa la red) · `off` |
 | `threads` | `REVERSE3D_THREADS` | `0` (auto) | Hilos de CPU |
 | `timeout_s` | `REVERSE3D_TIMEOUT_S` | `3600` | Timeout por proceso externo |
 | `max_input_mb` · `max_images` · `max_mesh_faces` · `max_image_pixels` | `REVERSE3D_MAX_*` | 512 · 500 · 5M · 100M | Límites de recursos |
@@ -448,6 +509,8 @@ Más detalles, cómo reportar suplantaciones y la lista de blindaje del propieta
 | Fotogrametría lenta o con timeout | Usa el perfil `fast`, `reverse3d config set timeout_s 7200` y menos fotos o fotos más pequeñas. |
 | `photos_to_model` dice que las fotos no sirven | Sigue las recomendaciones (más fotos, más nitidez, más solape) o usa `force_analysis: true`. |
 | Mi archivo de configuración tiene comentarios | `setup` no lo modifica; pega el bloque que te muestra. |
+| «The AI depth model is not on this computer» | Conéctate una vez y ejecuta `reverse3d offline prepare`. Después funciona sin internet. |
+| Algo de la bandeja acabó en `_revisar` | Lee el `LEEME.txt` que está junto al archivo, corrige lo que indica y vuelve a dejarlo en `bandeja`. |
 
 ## Estructura del repositorio
 
@@ -459,7 +522,7 @@ reverse3d/
 ├── docs/                               # Arquitectura, MCP, agentes, seguridad, esquemas de tools
 ├── examples/                           # Agente Claude y demo de punta a punta
 ├── reverse3d/
-│   ├── cli.py · recipes.py · setup_agents.py · userconfig.py · hardware.py · profiles.py
+│   ├── cli.py · recipes.py · autopilot.py · watch.py · offline.py · setup_agents.py · userconfig.py
 │   ├── config.py · security.py · mesh_io.py · imaging.py · errors.py · doctor.py
 │   ├── vision/ · reconstruction/ · reverse_eng/ · rendering/
 │   └── agent/                          # tools.py · mcp_server.py · prompts.py · compact.py · skill/

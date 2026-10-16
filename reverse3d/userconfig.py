@@ -32,6 +32,7 @@ CONFIG_KEYS: dict[str, str] = {
     "profile": "REVERSE3D_PROFILE",
     "verbosity": "REVERSE3D_VERBOSITY",
     "toolset": "REVERSE3D_TOOLSET",
+    "offline": "REVERSE3D_OFFLINE",
     "threads": "REVERSE3D_THREADS",
     "timeout_s": "REVERSE3D_TIMEOUT_S",
     "max_input_mb": "REVERSE3D_MAX_INPUT_MB",

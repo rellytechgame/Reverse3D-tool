@@ -218,9 +218,10 @@ class RenderArgs(_Args):
 
 class RunRecipeArgs(_Args):
     recipe: Literal[
-        "photos_to_model", "plan_to_part", "scan_to_cad", "photo_to_relief", "mesh_report"
+        "photos_to_model", "plan_to_part", "scan_to_cad", "photo_to_relief", "mesh_report", "auto"
     ] = Field(
-        description="photos_to_model: photo folder→measured 3D model+render. "
+        description="auto: detect the input type and pick/retry the right workflow (use it when "
+        "unsure). photos_to_model: photo folder→measured 3D model+render. "
         "plan_to_part: plan/stencil image→extruded part. "
         "scan_to_cad: mesh→clean+measure+primitives+OpenSCAD/CadQuery. "
         "photo_to_relief: one photo→2.5D relief. mesh_report: mesh→dimensions+render."

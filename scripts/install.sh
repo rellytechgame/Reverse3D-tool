@@ -396,7 +396,18 @@ if [ "$DO_SETUP" -eq 1 ]; then
   "$EXE" "$@" || { warn "Agent setup reported a problem; run 'reverse3d setup --snippets' for manual config."; add_missing "agent registration"; }
 fi
 
-# ─── 7. Summary ───────────────────────────────────────────────────────────────
+# ─── 7. Offline readiness ─────────────────────────────────────────────────────
+# Downloads the pinned AI depth model once, so reverse3d keeps working without
+# internet (no-op when the AI depth module is not installed).
+say "Preparing offline mode (downloads the AI depth model once)"
+OFFLINE_OUT="$("$EXE" --json offline prepare 2>/dev/null || true)"
+case "$OFFLINE_OUT" in
+  *'"ready": true'*) say "Offline mode ready: reverse3d works without internet" ;;
+  *) warn "AI depth model not downloaded yet; run 'reverse3d offline prepare' when online."
+     add_missing "offline AI depth model" ;;
+esac
+
+# ─── 8. Summary ───────────────────────────────────────────────────────────────
 if "$EXE" doctor >/dev/null 2>&1; then DOCTOR_OK=true; RESULT=OK; else DOCTOR_OK=false; RESULT=CHECK; fi
 write_status "$DOCTOR_OK"
 if [ -n "$MISSING" ]; then NOTE="Not installed: $MISSING"; else NOTE="Everything installed."; fi
@@ -409,7 +420,9 @@ cat <<EOF
     1. Restart your AI agent (Claude, Cursor, VS Code, Gemini, Codex, OpenCode…).
     2. Put photos, plans or models in the workspace and ask, for example:
        "usa reverse3d para convertir mis fotos en un modelo 3D"
+    3. Or use the autopilot, no agent needed:  $EXE watch
+       and drop photos, drawings or STL files in $WORKSPACE/bandeja
 
-  Check anytime:  $EXE doctor
+  Works offline.  Check anytime:  $EXE doctor
 RESULT: $RESULT
 EOF

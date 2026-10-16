@@ -18,6 +18,7 @@ REVERSE3D_DEVICE                auto | cpu | gpu                       auto
 REVERSE3D_PROFILE               fast | balanced | quality              balanced
 REVERSE3D_VERBOSITY             compact | full (agent tool output)     compact
 REVERSE3D_TOOLSET               full | lean (tools exposed to agents)  full
+REVERSE3D_OFFLINE               auto | on | off (internet use)         auto
 REVERSE3D_THREADS               CPU threads, 0 = automatic             0
 REVERSE3D_MAX_INPUT_MB          Max size of any input file             512
 REVERSE3D_MAX_IMAGE_PIXELS      Max pixels per decoded image           100000000
@@ -49,12 +50,14 @@ Device = Literal["auto", "cpu", "gpu"]
 Profile = Literal["fast", "balanced", "quality"]
 Verbosity = Literal["compact", "full"]
 Toolset = Literal["full", "lean"]
+OfflineMode = Literal["auto", "on", "off"]
 
 _CHOICES: dict[str, tuple[str, ...]] = {
     "REVERSE3D_DEVICE": ("auto", "cpu", "gpu"),
     "REVERSE3D_PROFILE": ("fast", "balanced", "quality"),
     "REVERSE3D_VERBOSITY": ("compact", "full"),
     "REVERSE3D_TOOLSET": ("full", "lean"),
+    "REVERSE3D_OFFLINE": ("auto", "on", "off"),
 }
 
 
@@ -94,6 +97,7 @@ class Settings:
     profile: Profile = "balanced"
     verbosity: Verbosity = "compact"
     toolset: Toolset = "full"
+    offline: OfflineMode = "auto"
     threads: int = 0
     max_input_bytes: int = 512 * _MB
     max_image_pixels: int = 100_000_000
@@ -126,6 +130,7 @@ class Settings:
             profile=_choice_env(env, "REVERSE3D_PROFILE", "balanced"),  # type: ignore[arg-type]
             verbosity=_choice_env(env, "REVERSE3D_VERBOSITY", "compact"),  # type: ignore[arg-type]
             toolset=_choice_env(env, "REVERSE3D_TOOLSET", "full"),  # type: ignore[arg-type]
+            offline=_choice_env(env, "REVERSE3D_OFFLINE", "auto"),  # type: ignore[arg-type]
             threads=_int_env(env, "REVERSE3D_THREADS", 0, 0, 1024),
             max_input_bytes=_int_env(env, "REVERSE3D_MAX_INPUT_MB", 512, 1, 16_384) * _MB,
             max_image_pixels=_int_env(

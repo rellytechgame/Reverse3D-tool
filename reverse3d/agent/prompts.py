@@ -17,7 +17,8 @@ _ARG_MAX = 300
 #: Short guidance sent to MCP clients that support server instructions.
 SERVER_INSTRUCTIONS = (
     "reverse3d: local 3D reverse-engineering tools. Prefer reverse3d_run_recipe (one call per "
-    "workflow). Paths are relative to the workspace. Use reverse3d_configure to switch "
+    "workflow; recipe=auto when unsure of the input type). Works offline. Paths are relative "
+    "to the workspace. Use reverse3d_configure to switch "
     "device (cpu/gpu) or profile (fast/balanced/quality). If a result has ok=false, read "
     "error.hint and retry. Report sizes with units and show the render path to the user."
 )
@@ -41,6 +42,17 @@ class PromptSpec:
 PROMPTS: dict[str, PromptSpec] = {
     p.name: p
     for p in (
+        PromptSpec(
+            "procesar",
+            "Lo que sea (fotos, plano, foto o malla) → detecta qué es y lo procesa solo.",
+            "Run reverse3d_run_recipe with recipe=auto, input_path='{entrada}', "
+            "output_dir='{salida}'. Tell the user what was detected, the dimensions, the "
+            "result files and the next_steps from the summary. If it failed, explain the hint.",
+            (
+                PromptArg("entrada", "Carpeta de fotos, imagen o archivo 3D dentro del workspace"),
+                PromptArg("salida", "Carpeta de resultados", required=False),
+            ),
+        ),
         PromptSpec(
             "fotos-a-3d",
             "Fotos de un objeto → modelo 3D medido y renderizado (fotogrametría).",
@@ -139,7 +151,13 @@ def render_prompt(name: str, arguments: dict[str, str] | None) -> str:
     for arg in spec.arguments:
         if arg.required and arg.name not in args:
             raise ValueError(f"Missing argument: {arg.name}")
-    source = args.get("carpeta") or args.get("imagen") or args.get("malla") or "input"
+    source = (
+        args.get("entrada")
+        or args.get("carpeta")
+        or args.get("imagen")
+        or args.get("malla")
+        or "input"
+    )
     stem = source.rstrip("/\\").replace("\\", "/").split("/")[-1].rsplit(".", 1)[0] or "result"
     values = {
         "salida": args.get("salida", f"out/{stem}"),

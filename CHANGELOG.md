@@ -2,6 +2,33 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.4.0] — 2026-10-16
+
+### Funciona sin internet
+- **Cambio automático a modo offline:** si el equipo no detecta conexión, reverse3d deja de usar la red por sí solo. La comprobación es una sonda TCP rápida, no envía datos y se guarda en caché un minuto.
+- **`reverse3d offline status`:** muestra si hay internet y qué funciona sin él. `reverse3d doctor` incluye ese informe.
+- **`reverse3d offline prepare`:** descarga los modelos de IA de profundidad en `~/.reverse3d/models`. Solo baja `safetensors` y configuración, en una **revisión fijada por commit**, de modo que un cambio en el repositorio de origen no altera lo que se ejecuta. El instalador lo hace solo.
+- La IA de profundidad usa siempre la copia local; una máquina preparada no toca la red.
+- Nuevo ajuste `offline` (`auto` · `on` · `off`), con `reverse3d config set offline` o `REVERSE3D_OFFLINE`.
+
+### Piloto automático
+- **`reverse3d auto <entrada>`** y la receta **`auto`**: detectan si la entrada es una carpeta de fotos, un plano o silueta, una foto, una malla o una nube de puntos, y ejecutan el flujo adecuado.
+- **Reintentos que sirven:**
+  - otro método de máscara para planos;
+  - calidad `high` si la fotogrametría falla;
+  - reparación fuerte si la malla no queda cerrada.
+- Lo que necesita al usuario (fotos borrosas, una herramienta que falta) se explica en vez de reintentar.
+- **`RESUMEN.md`** en cada resultado: qué se detectó, medidas, archivos y siguiente paso, en lenguaje claro.
+- **`reverse3d watch`:**
+  - procesa sola lo que dejes en `<workspace>/bandeja`;
+  - espera a que termine de copiarse antes de procesarlo;
+  - guarda el resultado en `resultados/<nombre>/` y mueve el original a `_procesado/`;
+  - si algo falla, mueve el original a `_revisar/` con un `LEEME.txt`.
+- Nuevo comando `/procesar` (prompt MCP) para los agentes.
+
+### Corregido
+- El sandbox trata `\` como separador también en Linux y macOS: una ruta de estilo Windows como `..\..\x` ya no se acepta como nombre de archivo.
+- `install.sh` cumple ShellCheck en las versiones de los runners de GitHub, y pip-audit ya no falla por el paquete editable.
 ## [0.3.0] — 2026-10-15
 
 ### Instalación sin preguntas

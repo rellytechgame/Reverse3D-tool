@@ -41,7 +41,7 @@ def _package_version(dist: str) -> str | None:
         return "installed"
 
 
-def environment_report(settings: Settings) -> dict[str, object]:
+def environment_report(settings: Settings, *, include_offline: bool = True) -> dict[str, object]:
     """Return a JSON-serialisable description of the runtime environment.
 
     Never raises for missing optional components; they are reported as absent.
@@ -66,7 +66,7 @@ def environment_report(settings: Settings) -> dict[str, object]:
     from reverse3d._about import AUTHOR, AUTHOR_URL, OFFICIAL_REPOSITORY
     from reverse3d.hardware import hardware_report
 
-    return {
+    report: dict[str, object] = {
         "reverse3d": __version__,
         "author": f"{AUTHOR} ({AUTHOR_URL})",
         "official_source": OFFICIAL_REPOSITORY,
@@ -102,3 +102,12 @@ def environment_report(settings: Settings) -> dict[str, object]:
             "mcp_server": packages["mcp"]["version"] is not None,
         },
     }
+    if include_offline:
+        from reverse3d.offline import offline_status
+
+        status = offline_status(settings)
+        report["offline"] = {
+            k: status[k]
+            for k in ("mode", "internet", "working_offline", "ready_for_offline", "missing")
+        }
+    return report

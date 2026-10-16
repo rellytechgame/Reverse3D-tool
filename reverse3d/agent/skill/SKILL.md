@@ -18,6 +18,7 @@ Local toolkit by Voxel Enterprise. Exposed as MCP tools named `reverse3d_*`. If 
 
 | User wants | recipe | input_path |
 |---|---|---|
+| **Not sure what the input is / "process this"** | `auto` (detects it and retries smartly) | anything |
 | Photos of an object → 3D model | `photos_to_model` | folder of photos |
 | Plan, stencil or silhouette → part | `plan_to_part` (+ `thickness`, `units_per_pixel`) | image |
 | Scan or mesh → clean + dimensions + CAD | `scan_to_cad` | mesh |
@@ -27,6 +28,16 @@ Local toolkit by Voxel Enterprise. Exposed as MCP tools named `reverse3d_*`. If 
 Example: `reverse3d_run_recipe {"recipe":"plan_to_part","input_path":"in/bracket.png","output_dir":"out/bracket","thickness":3,"units_per_pixel":0.5}`.
 
 Scale tips: if the user knows one real dimension (e.g. "the plate is 100 mm wide and spans 200 px"), then `units_per_pixel = 100/200`. To convert meters to millimeters, use `scale: 1000`.
+
+`auto` returns `auto.detected` (what it found), `next_steps` (plain-language advice) and writes `RESUMEN.md` next to the results: relay those to the user.
+
+## Offline
+
+reverse3d works without internet. It switches to offline mode by itself when there is no connection. The only thing that needs a download is the AI depth model, and the installer fetches it. If a result says the model is missing, tell the user to run `reverse3d offline prepare` once while online. `reverse3d offline status` shows what works offline.
+
+## Autopilot without an agent
+
+`reverse3d watch` watches `<workspace>/bandeja`: anything dropped there is processed automatically into `<workspace>/resultados/<name>/`. Suggest it to users who want to work hands-free.
 
 ## Device and performance
 

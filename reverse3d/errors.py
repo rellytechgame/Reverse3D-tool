@@ -73,3 +73,11 @@ class ProcessingError(Reverse3DError):
     """An algorithm could not produce a valid result for the given data."""
 
     code = "processing_failed"
+
+
+class CaptureQualityError(ProcessingError):
+    """The input capture (e.g. a photo set) is not good enough to process.
+
+    Retrying with other parameters will not help: the user has to improve the
+    capture. Kept under ``processing_failed`` so existing clients see the same code.
+    """
