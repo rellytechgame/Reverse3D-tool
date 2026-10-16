@@ -88,6 +88,18 @@
           "description": "photos_to_model: continue even if the photo check fails.",
           "type": "boolean"
         },
+        "scene": {
+          "default": "auto",
+          "description": "Photo sets: auto predicts it. object=part/product, character=person for games, architecture=building/interior, landscape=terrain/drone flight.",
+          "enum": [
+            "auto",
+            "object",
+            "character",
+            "architecture",
+            "landscape"
+          ],
+          "type": "string"
+        },
         "overwrite": {
           "default": false,
           "description": "Replace existing output files. Default false.",

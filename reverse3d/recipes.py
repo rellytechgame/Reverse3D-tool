@@ -73,6 +73,8 @@ class RecipeOptions:
     overwrite: bool = False
     #: plan_to_part: how the drawing is separated from the background.
     mask_method: MaskMethod = "otsu"
+    #: photos_to_model: scene profile (object, character, architecture, landscape) or "auto".
+    scene: str = "auto"
     #: photo_to_relief: object mask (white = keep), e.g. from the autopilot fallback.
     mask_path: str | None = None
     #: mesh repair strength; "strong" closes much larger holes.
@@ -194,8 +196,26 @@ _MIN_GROUP = 8
 
 def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
     from reverse3d.reconstruction.photogrammetry import PhotogrammetryOptions, run_photogrammetry
+    from reverse3d.scenes import SCENE_LABEL_ES, SCENE_PRESETS, detect_scene
     from reverse3d.vision.feature_matcher import analyze_image_set
 
+    scene: str
+    if opt.scene == "auto":
+        detection = run.step("scene", lambda: detect_scene(src, run.settings))
+        scene, confidence, predicted = detection.kind, detection.confidence, True
+    elif opt.scene in SCENE_PRESETS:
+        scene, confidence, predicted = opt.scene, 1.0, False
+    else:
+        raise InputValidationError(
+            f"Unknown scene '{opt.scene}'.", hint=f"Use auto or one of: {', '.join(SCENE_PRESETS)}"
+        )
+    preset = SCENE_PRESETS[scene]
+    run.details["scene"] = {
+        "kind": scene,
+        "label": SCENE_LABEL_ES[scene],
+        "confidence": confidence,
+        "predicted": predicted,
+    }
     analysis = run.step("analyze", lambda: analyze_image_set(src, run.settings))
     run.details["analysis"] = analysis.to_dict()
     if not analysis.suitable_for_photogrammetry and analysis.connected_images >= _MIN_GROUP:
@@ -223,14 +243,20 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
             )
         run.warnings.extend(analysis.recommendations)
 
-    quality = opt.quality or profile_values(run.settings).photo_quality
+    quality = opt.quality or preset.quality or profile_values(run.settings).photo_quality
     photo = run.step(
         "photogrammetry",
         lambda: run_photogrammetry(
             src,
             run.out / "reconstruction",
             run.settings,
-            PhotogrammetryOptions(quality=quality, use_gpu=wants_gpu(run.settings)),  # type: ignore[arg-type]
+            PhotogrammetryOptions(
+                quality=quality,  # type: ignore[arg-type]
+                matcher=preset.matcher,
+                use_gpu=wants_gpu(run.settings),
+                poisson_depth=preset.poisson_depth,
+                density_quantile=preset.density_quantile,
+            ),
             overwrite=opt.overwrite,
         ),
     )
@@ -249,7 +275,8 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
         model,
         scale=opt.scale,
         overwrite=opt.overwrite,
-        keep_largest=True,
+        fill_holes=preset.fill_holes,
+        keep_largest=preset.keep_largest,
         repair=opt.repair,
     )
     return _measure(run, model)
@@ -452,6 +479,8 @@ def run_recipe(
         "steps": [f"{s['step']}:{s['s']}s" for s in run.steps],
         "warnings": run.warnings,
     }
+    if "scene" in run.details:
+        summary["scene"] = run.details["scene"]
     if "primitive_summary" in run.details:
         summary["primitives"] = run.details["primitive_summary"]
 

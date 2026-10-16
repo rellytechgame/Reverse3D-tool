@@ -55,3 +55,34 @@ Da la vuelta completa al objeto en tres alturas y termina con fotos desde arriba
 4. **Plan B:** elige la foto que mejor muestra el objeto, lo recorta del fondo y genera un **sólido cerrado aproximado** con IA (`fallback` en el resumen), con estos consejos para repetir la captura.
 
 El modelo aproximado tiene la cara oculta plana y la altura estimada. Para el objeto completo y con medidas reales, sigue esta guía.
+## Perfiles de escena
+
+reverse3d predice qué fotografiaste (`reverse3d scene detect <carpeta>`) y ajusta la reconstrucción. También puedes elegirlo: `reverse3d auto <carpeta> --scene object|character|architecture|landscape`.
+
+| Perfil | Mínimo | Recomendado | Cómo se procesa |
+|---|---|---|---|
+| **Objeto o pieza** | 20 | 40–60 | Sólido cerrado, se queda con la pieza principal. |
+| **Personaje** | 40 | 60–100 | Calidad alta, malla más detallada, sólido cerrado. |
+| **Arquitectura** | 50 | 80–200 | Superficie abierta (sin cerrar huecos), conserva todas las partes, más recorte de ruido. |
+| **Paisaje o terreno** | 60 | 100–400 | Emparejamiento por GPS si las fotos lo tienen, superficie abierta y malla más detallada. |
+
+La predicción usa la marca de cámara y el GPS del EXIF (drones, área recorrida), la inclinación del gimbal, qué tan aislado está el sujeto, si parece una persona, cuántas líneas rectas hay y cuánto cielo se ve. Siempre devuelve sus motivos (`reasons`) y la confianza.
+
+### Personaje (personas para juegos)
+
+- **Fotos:** 60–100 en menos de 2 minutos, con la persona quieta en **pose A** (brazos a unos 45° del cuerpo, pies al ancho de hombros) y mirando a un punto fijo.
+- **Perfiles:** anillo a la altura de las rodillas (24 fotos, una cada 15°), del pecho (24) y por encima de la cabeza (16), más 10–12 fotos de cerca del rostro.
+- **Reglas:** ropa mate y ajustada, pelo recogido, luz suave sin sombras en la cara, velocidad de 1/250 s o más, sin modo retrato.
+- El modelo sale con la escala de las fotos; el rig y la retopología para animar se hacen después en Blender.
+
+### Arquitectura
+
+- **Fotos:** 80–200 para un edificio (mínimo 50).
+- **Perfiles:** vuelta cercana a la altura de los ojos (una foto cada 2–3 pasos, 70 % de solape), vuelta alejada o elevada para ver el techo, fachadas de frente y esquinas a 45°. Interiores: desde las esquinas en diagonal, una foto por metro, incluyendo techo y piso.
+- **Reglas:** distancia constante, día nublado, sin gente ni autos moviéndose, sin ojo de pez, una medida de referencia para la escala.
+
+### Paisaje o terreno (dron)
+
+- **Fotos:** 100–400 (mínimo 60).
+- **Perfiles:** cuadrícula a altura constante (30–120 m) con la cámara vertical (90°), 75–80 % de solape frontal y 65–70 % lateral; una pasada oblicua a 45–60°; una órbita alrededor de lo principal. Sin dron: líneas paralelas cada 2–3 m con la cámara alta mirando el suelo en diagonal.
+- **Reglas:** GPS activado, exposición fija, sin viento, sin sombras duras del mediodía; puntos de control en el suelo si necesitas precisión topográfica.

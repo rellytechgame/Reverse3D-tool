@@ -46,7 +46,7 @@ from reverse3d.security import (
 logger = logging.getLogger(__name__)
 
 Quality = Literal["low", "medium", "high"]
-MatcherKind = Literal["auto", "exhaustive", "sequential"]
+MatcherKind = Literal["auto", "exhaustive", "sequential", "spatial"]
 DenseMode = Literal["auto", "on", "off"]
 
 CAMERA_MODELS = frozenset(
@@ -82,12 +82,20 @@ class PhotogrammetryOptions:
     camera_model: str = "SIMPLE_RADIAL"
     single_camera: bool = True
     build_mesh: bool = True
+    #: Poisson octree depth; None uses the quality preset (scene profiles raise it).
+    poisson_depth: int | None = None
+    #: share of the least supported surface trimmed after Poisson.
+    density_quantile: float = 0.02
 
     def validate(self) -> None:
         if self.quality not in _PRESETS:
             raise InputValidationError(f"quality must be one of {sorted(_PRESETS)}")
-        if self.matcher not in ("auto", "exhaustive", "sequential"):
-            raise InputValidationError("matcher must be auto, exhaustive or sequential")
+        if self.matcher not in ("auto", "exhaustive", "sequential", "spatial"):
+            raise InputValidationError("matcher must be auto, exhaustive, sequential or spatial")
+        if self.poisson_depth is not None and not 5 <= self.poisson_depth <= 13:
+            raise InputValidationError("poisson_depth must be in [5, 13]")
+        if not 0 <= self.density_quantile < 0.5:
+            raise InputValidationError("density_quantile must be in [0, 0.5)")
         if self.dense not in ("auto", "on", "off"):
             raise InputValidationError("dense must be auto, on or off")
         if self.camera_model not in CAMERA_MODELS:
@@ -296,18 +304,38 @@ class ColmapPipeline:
 
         # 2. Matching
         matcher = options.matcher
+        if matcher == "spatial":
+            from reverse3d.scenes import has_gps
+
+            # GPS-guided matching (drone / large outdoor sets); without GPS, sequential.
+            matcher = "spatial" if has_gps(staged) else "sequential"
         if matcher == "auto":
             matcher = "exhaustive" if len(images) <= _EXHAUSTIVE_LIMIT else "sequential"
         command = f"{matcher}_matcher"
-        self._stage(
-            result,
-            command,
-            self._with_options(
+        extra: dict[tuple[str, ...], str] = {
+            ("FeatureMatching.use_gpu", "SiftMatching.use_gpu"): gpu
+        }
+        if matcher == "spatial":
+            extra[("SpatialMatching.is_gps",)] = "1"
+        try:
+            self._stage(
+                result,
                 command,
-                [command, "--database_path", str(db)],
-                {("FeatureMatching.use_gpu", "SiftMatching.use_gpu"): gpu},
-            ),
-        )
+                self._with_options(command, [command, "--database_path", str(db)], extra),
+            )
+        except ExternalToolError:
+            if matcher != "spatial":
+                raise
+            result.warnings.append("GPS matching failed; used sequential matching instead.")
+            self._stage(
+                result,
+                "sequential_matcher",
+                self._with_options(
+                    "sequential_matcher",
+                    ["sequential_matcher", "--database_path", str(db)],
+                    {("FeatureMatching.use_gpu", "SiftMatching.use_gpu"): gpu},
+                ),
+            )
 
         # 3. Sparse reconstruction (SfM)
         self._stage(
@@ -389,7 +417,8 @@ class ColmapPipeline:
                     cloud,
                     out / "mesh.ply",
                     self.settings,
-                    depth=preset["poisson_depth"],
+                    depth=options.poisson_depth or preset["poisson_depth"],
+                    density_quantile=options.density_quantile,
                     overwrite=True,
                 )
                 result.mesh_path = meshing.mesh_path

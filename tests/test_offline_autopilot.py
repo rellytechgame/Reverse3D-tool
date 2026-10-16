@@ -278,7 +278,14 @@ class TestAutoRun:
         assert summary["fallback"]["from"] == "photos_to_model"
         assert summary["warnings"][0].startswith("A full 3D model could not be reconstructed")
         assert [a["ok"] for a in summary["auto"]["attempts"]] == [False, True]
-        assert summary["next_steps"][0].startswith("Para un modelo 3D completo")
+        # Capture advice for the predicted scene comes first.
+        assert summary["auto"]["scene"]["kind"] in (
+            "object",
+            "character",
+            "architecture",
+            "landscape",
+        )
+        assert "fotos" in summary["next_steps"][0]
         assert (tmp_path / "o" / "RESUMEN.md").is_file()
 
     def test_capture_error_is_kept_when_the_fallback_fails(

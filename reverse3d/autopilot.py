@@ -299,6 +299,8 @@ def _relief_fallback(
 ) -> dict[str, Any]:
     """Photogrammetry was not possible: build an approximate model from the best photo."""
     photo, mask = _best_photo(source, out, settings)
+    if base.scene in ("architecture", "landscape"):
+        mask = None  # an open scene: keep the whole view as a relief
     logger.info("Photogrammetry not possible; building an AI-depth relief from %s", photo.name)
     summary = run_recipe(
         "photo_to_relief",
@@ -352,6 +354,16 @@ def auto_run(
         source = _mesh_from_points(detection, out, settings, base.overwrite)
 
     history: list[dict[str, Any]] = []
+    scene_info: dict[str, Any] | None = None
+    if detection.kind == "photos":
+        from reverse3d.scenes import SCENE_PRESETS, detect_scene
+
+        if base.scene == "auto":
+            predicted = detect_scene(source, settings)
+            scene_info = predicted.to_dict()
+            base = replace(base, scene=predicted.kind)
+        elif base.scene in SCENE_PRESETS:
+            scene_info = {"kind": base.scene, "confidence": 1.0, "reasons": ["chosen"]}
     summary: dict[str, Any] | None = None
     last_error: Reverse3DError | None = None
     capture_advice: list[str] = []
@@ -396,7 +408,14 @@ def auto_run(
 
     if summary is None and detection.kind == "photos" and last_error is not None:
         reason = last_error.message.split(":", 1)[0].rstrip(".")
-        capture_advice = [CAPTURE_ADVICE_ES]
+        from reverse3d.scenes import scene_advice
+
+        photos = len(
+            list_images(source, max_images=settings.max_images, max_bytes=settings.max_input_bytes)
+        )
+        capture_advice = (
+            scene_advice(base.scene, photos) if base.scene != "auto" else [CAPTURE_ADVICE_ES]
+        )
         try:
             summary = _relief_fallback(source, out, settings, base, reason, history)
         except Reverse3DError as exc:
@@ -409,6 +428,8 @@ def auto_run(
         raise last_error or ProcessingError("No processing attempt could run.")
 
     summary["auto"] = {"detected": detection.to_dict(), "attempts": history}
+    if scene_info is not None:
+        summary["auto"]["scene"] = scene_info
     summary["next_steps"] = capture_advice + next_steps(detection, summary, base)
     summary["outputs"]["summary"] = str(write_summary(out, detection, summary))
     return summary

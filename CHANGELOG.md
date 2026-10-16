@@ -2,6 +2,16 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.5.2] — 2026-10-16
+
+### Perfiles de escena: de piezas a personajes, arquitectura y paisajes
+- **Predicción automática de la escena** (`reverse3d scene detect <carpeta>`, `reverse3d.scenes.detect_scene`): objeto o pieza, personaje, arquitectura o paisaje. Usa una muestra de las fotos: cámara y GPS del EXIF (drones, área recorrida), inclinación del gimbal (XMP de DJI), qué tan aislado está el sujeto, si parece una persona, líneas rectas y cielo. Devuelve el perfil, la confianza, los motivos, las fotos mínimas y recomendadas y consejos de captura. Es determinista y funciona sin conexión.
+- **Cada perfil ajusta el proceso** (`SCENE_PRESETS`): calidad, emparejamiento, profundidad de Poisson, recorte de superficie poco soportada, y si el resultado es un sólido cerrado (objetos, personajes) o una superficie abierta que conserva todas las partes (edificios, terrenos).
+- **Emparejamiento por GPS** (`matcher="spatial"`) para paisajes con fotos geolocalizadas; sin GPS, o si falla, usa el secuencial.
+- `reverse3d auto --scene auto|object|character|architecture|landscape`, `RecipeOptions.scene` y el parámetro `scene` de la herramienta `run_recipe` para agentes. El resumen incluye `scene` y `auto.scene`.
+- El piloto automático detecta la escena una vez, la pasa a la receta y adapta los consejos y el plan B: en arquitectura y paisajes el modelo aproximado es un relieve de la vista completa.
+- `docs/captura.md` incluye la guía de captura de cada perfil.
+
 ## [0.5.1] — 2026-10-16
 
 ### Guía de captura

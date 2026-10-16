@@ -358,6 +358,8 @@ Si las fotos están borrosas o falta una herramienta, **no reintenta en vano**: 
 
 **Formatos:** imágenes `png jpg jpeg tif tiff bmp webp`, y fotos de iPhone `heic heif` (se convierten a JPEG conservando el EXIF) · mallas `stl obj ply glb gltf off` · nubes `ply xyz pcd`.
 
+**Perfiles de escena:** reverse3d predice si las fotos son de un objeto, un personaje, arquitectura o un paisaje (`reverse3d scene detect <carpeta>`) y ajusta la reconstrucción; también puedes elegirlo con `reverse3d auto <carpeta> --scene architecture`.
+
 **¿Cómo tomar las fotos?** Mínimo 20, recomendadas 40-60, en 4 perfiles (anillos a 10-20°, 35-45° y 60-70°, y 4 desde arriba), sin mover el objeto, con luz pareja y sin reflejos. Guía completa: [docs/captura.md](docs/captura.md).
 
 ---

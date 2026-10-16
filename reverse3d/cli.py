@@ -67,6 +67,10 @@ app.add_typer(vision_app, name="vision")
 app.add_typer(recon_app, name="recon")
 app.add_typer(mesh_app, name="mesh")
 app.add_typer(agent_app, name="agent")
+scene_app = typer.Typer(
+    help="Scene profiles: object, character, architecture, landscape.", no_args_is_help=True
+)
+app.add_typer(scene_app, name="scene")
 
 
 @dataclass
@@ -757,6 +761,10 @@ def auto_cmd(
     units_per_pixel: float | None = typer.Option(None, min=0, help="Drawing scale (mm/px)."),
     scale: float = typer.Option(1.0, min=1e-9, help="Final uniform scale (m→mm: 1000)."),
     render: bool = typer.Option(True, help="Render a PNG preview at the end."),
+    scene: str = typer.Option(
+        "auto",
+        help="Photo sets: auto (predicted), object, character, architecture or landscape.",
+    ),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite outputs."),
 ) -> None:
     """Detect what INPUT is and process it automatically (no recipe to choose)."""
@@ -769,6 +777,7 @@ def auto_cmd(
         units_per_pixel=units_per_pixel,
         scale=scale,
         render=render,
+        scene=scene,
         overwrite=force,
     )
 
@@ -776,6 +785,22 @@ def auto_cmd(
         name = input_path.stem if input_path.is_file() else input_path.name
         out = output_dir or (s.workspace / OUTBOX_NAME / name)
         return auto_run(input_path, out, s, options)
+
+    _run(ctx, job)
+
+
+@scene_app.command("detect")
+def scene_detect_cmd(
+    ctx: typer.Context,
+    folder: Path = typer.Argument(..., help="Folder with the photos."),
+) -> None:
+    """Predict the scene of a photo set (object, character, architecture, landscape)."""
+    from reverse3d.imaging import prepare_heic_input
+    from reverse3d.scenes import detect_scene
+
+    def job(s: Settings) -> Any:
+        work = s.workspace / ".scene"
+        return detect_scene(prepare_heic_input(folder, work), s).to_dict()
 
     _run(ctx, job)
 

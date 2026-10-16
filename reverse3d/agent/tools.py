@@ -240,6 +240,11 @@ class RunRecipeArgs(_Args):
     force_analysis: bool = Field(
         False, description="photos_to_model: continue even if the photo check fails."
     )
+    scene: Literal["auto", "object", "character", "architecture", "landscape"] = Field(
+        "auto",
+        description="Photo sets: auto predicts it. object=part/product, character=person "
+        "for games, architecture=building/interior, landscape=terrain/drone flight.",
+    )
     overwrite: bool = _OVERWRITE
 
 
@@ -471,6 +476,7 @@ def _run_recipe(a: RunRecipeArgs, s: Settings) -> dict[str, Any]:
             render=a.render,
             quality=a.quality,
             force_analysis=a.force_analysis,
+            scene=a.scene,
             overwrite=a.overwrite,
         ),
     )
