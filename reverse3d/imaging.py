@@ -8,6 +8,8 @@ paths work on Windows (``cv2.imread`` does not support them).
 
 from __future__ import annotations
 
+import logging
+import shutil
 from pathlib import Path
 
 import cv2
@@ -16,7 +18,14 @@ from PIL import Image
 
 from reverse3d.config import Settings
 from reverse3d.errors import InputValidationError, ProcessingError
-from reverse3d.security import IMAGE_EXTENSIONS, prepare_output_file, validate_input_file
+from reverse3d.security import (
+    HEIC_EXTENSIONS,
+    IMAGE_EXTENSIONS,
+    prepare_output_file,
+    validate_input_file,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def check_image_header(path: Path, max_pixels: int) -> tuple[int, int]:
@@ -77,3 +86,55 @@ def downscale(image: np.ndarray, max_dim: int) -> tuple[np.ndarray, float]:
     scale = max_dim / longest
     resized = cv2.resize(image, (round(w * scale), round(h * scale)), interpolation=cv2.INTER_AREA)
     return resized, scale
+
+
+def _heic_to_jpeg(src: Path, dst: Path) -> Path:
+    """Decode one HEIC/HEIF photo and save it as JPEG, keeping its EXIF (focal length)."""
+    import pillow_heif
+
+    pillow_heif.register_heif_opener()
+    try:
+        with Image.open(src) as image:
+            exif = image.info.get("exif")
+            rgb = image.convert("RGB")
+            kwargs: dict[str, object] = {"quality": 95}
+            if exif:
+                kwargs["exif"] = exif
+            rgb.save(dst, "JPEG", **kwargs)
+    except Exception as exc:  # pillow-heif raises several error types
+        raise InputValidationError(f"Could not read the HEIC photo {src.name}: {exc}") from exc
+    return dst
+
+
+def prepare_heic_input(path: str | Path, work_dir: str | Path) -> Path:
+    """Return ``path`` ready for OpenCV and COLMAP, converting HEIC/HEIF photos to JPEG.
+
+    A HEIC file becomes ``work_dir/photos_jpg/<name>.jpg``; a folder with HEIC
+    photos becomes ``work_dir/photos_jpg`` holding the converted photos plus the
+    other images. Inputs without HEIC are returned unchanged.
+    """
+    src = Path(path).expanduser()
+    if src.is_file() and src.suffix.lower() not in HEIC_EXTENSIONS:
+        return src
+    if src.is_dir():
+        files = [p for p in sorted(src.iterdir()) if p.is_file() and not p.name.startswith(".")]
+        if not any(p.suffix.lower() in HEIC_EXTENSIONS for p in files):
+            return src
+    elif not src.is_file():
+        return src
+    target = Path(work_dir).expanduser() / "photos_jpg"
+    target.mkdir(parents=True, exist_ok=True)
+    if src.is_file():
+        return _heic_to_jpeg(src, target / f"{src.stem}.jpg")
+    converted = 0
+    for item in files:
+        ext = item.suffix.lower()
+        if ext in HEIC_EXTENSIONS:
+            out = target / f"{item.stem}.jpg"
+            if not out.exists():
+                _heic_to_jpeg(item, out)
+            converted += 1
+        elif ext in IMAGE_EXTENSIONS and not (target / item.name).exists():
+            shutil.copy2(item, target / item.name)
+    logger.info("Converted %d HEIC photo(s) to JPEG", converted)
+    return target

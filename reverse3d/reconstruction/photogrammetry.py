@@ -59,6 +59,11 @@ _PRESETS: dict[str, dict[str, int]] = {
     "high": {"max_image_size": 3200, "max_features": 16384, "poisson_depth": 10},
 }
 
+# Below these, the sparse model is too thin for a usable surface: stop before the
+# (slow) dense stage so the caller can fall back to something better.
+_MIN_REGISTERED = 5
+_MIN_SPARSE_POINTS = 1000
+
 # Above this many images exhaustive matching (O(n²)) becomes impractical.
 _EXHAUSTIVE_LIMIT = 150
 
@@ -335,6 +340,12 @@ class ColmapPipeline:
                 best, best_stats = model, stats
         result.sparse_model_dir = str(best)
         result.registered_images, result.sparse_points = best_stats
+        if result.registered_images < _MIN_REGISTERED or result.sparse_points < _MIN_SPARSE_POINTS:
+            raise ProcessingError(
+                f"COLMAP placed {result.registered_images}/{len(images)} photos with only "
+                f"{result.sparse_points} 3D points: too little for a reliable model.",
+                hint="More overlap, a still object, even light and matte surfaces are needed.",
+            )
         if result.registered_images and result.registered_images < len(images) * 0.5:
             result.warnings.append(
                 f"Only {result.registered_images}/{len(images)} images were registered."

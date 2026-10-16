@@ -356,7 +356,7 @@ Si las fotos están borrosas o falta una herramienta, **no reintenta en vano**: 
 | 🛰️ **Piloto automático** | Detección de la entrada, reintentos inteligentes, carpeta vigilada, `RESUMEN.md` | Reglas deterministas, sin IA |
 | 🔌 **Offline** | Detección de conexión, cambio automático, modelos fijados por revisión | `~/.reverse3d/models` |
 
-**Formatos:** imágenes `png jpg jpeg tif tiff bmp webp` · mallas `stl obj ply glb gltf off` · nubes `ply xyz pcd`.
+**Formatos:** imágenes `png jpg jpeg tif tiff bmp webp`, y fotos de iPhone `heic heif` (se convierten a JPEG conservando el EXIF) · mallas `stl obj ply glb gltf off` · nubes `ply xyz pcd`.
 
 ---
 

@@ -8,8 +8,11 @@ rules, no AI model), so it works the same offline and on any machine:
    silhouette, a single photo, a mesh or a point cloud.
 2. It runs the matching recipe and retries only when another setting can fix
    the failure (another mask method, higher photogrammetry quality, stronger
-   mesh repair). Problems that need the user (blurry photos, a missing tool)
-   stop immediately with a clear hint.
+   mesh repair). Problems that need the user (a missing tool, an unreadable
+   input) stop immediately with a clear hint.
+   When a photo set cannot be reconstructed (photos that do not overlap,
+   shiny or changing surfaces...), it still delivers a model: an AI-depth
+   relief of the best photo, flagged as approximate, plus capture advice.
 3. It writes ``RESUMEN.md``: what was detected, sizes, files and next steps.
 """
 
@@ -32,8 +35,15 @@ from reverse3d.errors import (
     ProcessingError,
     Reverse3DError,
 )
+from reverse3d.imaging import prepare_heic_input
 from reverse3d.recipes import MaskMethod, RecipeOptions, run_recipe
-from reverse3d.security import IMAGE_EXTENSIONS, MESH_EXTENSIONS, POINT_CLOUD_EXTENSIONS
+from reverse3d.security import (
+    HEIC_EXTENSIONS,
+    IMAGE_EXTENSIONS,
+    MESH_EXTENSIONS,
+    POINT_CLOUD_EXTENSIONS,
+    list_images,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +134,7 @@ def detect_input(path: str | Path) -> Detection:
     src = Path(path).expanduser()
     if src.is_dir():
         files = [p for p in sorted(src.iterdir()) if p.is_file() and _visible(p)]
-        images = [p for p in files if p.suffix.lower() in IMAGE_EXTENSIONS]
+        images = [p for p in files if p.suffix.lower() in IMAGE_EXTENSIONS | HEIC_EXTENSIONS]
         meshes = [p for p in files if p.suffix.lower() in MESH_EXTENSIONS | POINT_CLOUD_EXTENSIONS]
         if len(images) >= _MIN_PHOTOS:
             return Detection(
@@ -195,6 +205,112 @@ def _mesh_from_points(detection: Detection, out: Path, settings: Settings, overw
     return target
 
 
+def _nearer_part(mask: np.ndarray, disparity: np.ndarray) -> np.ndarray:
+    """Keep the part of ``mask`` that stands out from the surface (the object,
+    not the desk, pad or light glow around it): Otsu split of its height."""
+    inside = mask > 0
+    if inside.sum() < 100 or (~inside).sum() < 100:
+        return mask
+    from reverse3d.reconstruction.depth_estimation import height_above_support
+
+    height = height_above_support(mask, disparity)
+    values = height[inside]
+    lo, hi = float(np.percentile(values, 1)), float(np.percentile(values, 99))
+    if hi - lo < 1e-6:
+        return mask
+    scaled = ((height - lo) / (hi - lo) * 255).clip(0, 255).astype(np.uint8)
+    threshold, _ = cv2.threshold(
+        scaled[inside].reshape(-1, 1), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+    )
+    near: np.ndarray = np.where(inside & (scaled > threshold), 255, 0).astype(np.uint8)
+    near = cv2.morphologyEx(near, cv2.MORPH_OPEN, np.ones((7, 7), np.uint8))
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(near)
+    if count <= 1:
+        return mask
+    largest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    near = np.where(labels == largest, 255, 0).astype(np.uint8)
+    contours, _ = cv2.findContours(near, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    filled = np.zeros_like(near)
+    cv2.drawContours(filled, contours, -1, 255, thickness=cv2.FILLED)
+    # A tiny blob means the split failed (a flat object): keep the first mask.
+    return filled if filled.sum() >= 0.2 * inside.sum() * 255 else mask
+
+
+def _best_photo(folder: Path, out: Path, settings: Settings) -> tuple[Path, Path | None]:
+    """Photo for the fallback relief, and a mask that isolates the object in it.
+
+    Every photo gets a quick GrabCut; the one where the object looks largest,
+    whole and sharp wins. Its mask is then refined at higher resolution and
+    trimmed with the AI depth so the desk and background stay out of the relief.
+    """
+    from reverse3d.hardware import torch_device
+    from reverse3d.imaging import downscale, load_image, save_image
+    from reverse3d.reconstruction.depth_estimation import predict_depth
+    from reverse3d.vision.mask_extractor import foreground_mask, mask_score
+
+    images = list_images(folder, max_images=settings.max_images, max_bytes=settings.max_input_bytes)
+    best: tuple[float, Path] | None = None
+    for path in images:
+        small, _ = downscale(load_image(path, settings), 320)
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        sharp = min(float(cv2.Laplacian(gray, cv2.CV_64F).var()) / 300.0, 1.0)
+        try:
+            score = mask_score(foreground_mask(small, work_side=320)) * (0.5 + 0.5 * sharp)
+        except cv2.error:
+            score = 0.1 * sharp
+        if best is None or score > best[0]:
+            best = (score, path)
+    if best is None:  # pragma: no cover - detect_input guarantees photos
+        raise ProcessingError("No photo available for the fallback relief.")
+    score, photo = best
+    if score < 0.15:
+        return photo, None  # no clear object: keep the whole photo
+
+    full = load_image(photo, settings)
+    work, _ = downscale(full, 800)
+    mask = foreground_mask(work, work_side=800)
+    try:
+        rgb = cv2.cvtColor(work, cv2.COLOR_BGR2RGB)
+        mask = _nearer_part(
+            mask, predict_depth(rgb, device=torch_device(settings), settings=settings)
+        )
+    except Reverse3DError as exc:  # depth model unavailable: the GrabCut mask still helps
+        logger.info("Depth refinement of the fallback mask skipped: %s", exc.message)
+    mask = cv2.erode(mask, np.ones((3, 3), np.uint8))
+    mask = cv2.resize(mask, (full.shape[1], full.shape[0]), interpolation=cv2.INTER_NEAREST)
+    return photo, save_image(mask, out / "fallback_mask.png", overwrite=True)
+
+
+def _relief_fallback(
+    source: Path,
+    out: Path,
+    settings: Settings,
+    base: RecipeOptions,
+    reason: str,
+    history: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Photogrammetry was not possible: build an approximate model from the best photo."""
+    photo, mask = _best_photo(source, out, settings)
+    logger.info("Photogrammetry not possible; building an AI-depth relief from %s", photo.name)
+    summary = run_recipe(
+        "photo_to_relief",
+        photo,
+        out,
+        settings,
+        replace(base, overwrite=True, mask_path=str(mask) if mask else None),
+    )
+    if mask:
+        summary["outputs"]["mask"] = str(mask)
+    history.append({"attempt": f"fallback=photo_to_relief ({photo.name})", "ok": True})
+    summary["warnings"] = [
+        "A full 3D model could not be reconstructed from these photos "
+        f"({reason}). This is an approximate relief from the best photo, {photo.name}.",
+        *summary.get("warnings", []),
+    ]
+    summary["fallback"] = {"from": "photos_to_model", "photo": str(photo), "reason": reason}
+    return summary
+
+
 def auto_run(
     input_path: str | Path,
     output_dir: str | Path,
@@ -212,6 +328,8 @@ def auto_run(
         Reverse3DError: every attempt failed (the last error is raised).
     """
     base = options or RecipeOptions()
+    # iPhone photos (HEIC) are converted to JPEG first; other inputs pass through.
+    input_path = prepare_heic_input(input_path, output_dir)
     detection = detect_input(input_path)
     if detection.recipe is None:
         raise InputValidationError(
@@ -228,10 +346,17 @@ def auto_run(
     history: list[dict[str, Any]] = []
     summary: dict[str, Any] | None = None
     last_error: Reverse3DError | None = None
+    capture_advice: list[str] = []
     for attempt in _attempt_plan(detection, base):
         try:
             summary = run_recipe(detection.recipe, source, out, settings, attempt.options)
-        except (CaptureQualityError, DependencyMissingError, InputValidationError) as exc:
+        except CaptureQualityError as exc:
+            history.append({"attempt": attempt.label, "ok": False, "error": exc.message})
+            if detection.kind != "photos":
+                raise
+            last_error = exc
+            break  # better settings will not fix the capture: go to the fallback
+        except (DependencyMissingError, InputValidationError) as exc:
             history.append({"attempt": attempt.label, "ok": False, "error": exc.message})
             raise  # the user has to act: retrying with other settings will not help
         except (ProcessingError, ExternalToolError) as exc:
@@ -261,11 +386,26 @@ def auto_run(
                     summary = stronger
         break
 
+    if summary is None and detection.kind == "photos" and last_error is not None:
+        reason = last_error.message.split(":", 1)[0].rstrip(".")
+        capture_advice = [
+            "Para un modelo 3D completo: 30-60 fotos en orden alrededor del objeto, sin moverlo, "
+            "con luz pareja y sin reflejos (las luces RGB apagadas; en superficies brillantes, "
+            "spray mate o talco).",
+        ]
+        try:
+            summary = _relief_fallback(source, out, settings, base, reason, history)
+        except Reverse3DError as exc:
+            logger.warning("Relief fallback failed: %s", exc.message)
+            history.append(
+                {"attempt": "fallback=photo_to_relief", "ok": False, "error": exc.message}
+            )
+            raise last_error from exc
     if summary is None:
         raise last_error or ProcessingError("No processing attempt could run.")
 
     summary["auto"] = {"detected": detection.to_dict(), "attempts": history}
-    summary["next_steps"] = next_steps(detection, summary, base)
+    summary["next_steps"] = capture_advice + next_steps(detection, summary, base)
     summary["outputs"]["summary"] = str(write_summary(out, detection, summary))
     return summary
 
@@ -288,11 +428,12 @@ def next_steps(detection: Detection, summary: dict[str, Any], options: RecipeOpt
             "Las medidas están en píxeles: indica la escala con --units-per-pixel "
             "para tener medidas reales."
         )
-    if detection.kind == "photo":
+    relief = detection.kind == "photo" or "fallback" in summary
+    if relief:
         steps.append(
             "La profundidad con IA es relativa: usa --scale si necesitas un tamaño concreto."
         )
-    if detection.kind == "photo":
+    if relief:
         steps.append(
             "Un relieve es una superficie abierta: dale grosor en tu programa 3D "
             "si lo vas a imprimir."

@@ -350,3 +350,59 @@ def silhouette_to_mesh(
         "volume": round(float(mesh.volume), 6) if mesh.is_watertight else None,
         "units_per_pixel": float(scale),
     }
+
+
+def foreground_mask(image: np.ndarray, *, work_side: int = 640, margin: float = 0.06) -> np.ndarray:
+    """Separate the main object from a cluttered background (OpenCV GrabCut).
+
+    Assumes the object is roughly centred in the photo. Works on a downscaled
+    copy and returns a full-size ``uint8`` mask (255 = object) holding only the
+    largest region, slightly eroded so depth edges do not leave spikes.
+    """
+    h, w = image.shape[:2]
+    scale = work_side / max(h, w)
+    small = cv2.resize(
+        image[:, :, :3],
+        (max(1, round(w * scale)), max(1, round(h * scale))),
+        interpolation=cv2.INTER_AREA,
+    )
+    sh, sw = small.shape[:2]
+    rect = (
+        round(sw * margin),
+        round(sh * margin),
+        round(sw * (1 - 2 * margin)),
+        round(sh * (1 - 2 * margin)),
+    )
+    mask = np.zeros((sh, sw), np.uint8)
+    bgd, fgd = np.zeros((1, 65), np.float64), np.zeros((1, 65), np.float64)
+    cv2.grabCut(small, mask, rect, bgd, fgd, 5, cv2.GC_INIT_WITH_RECT)
+    fg: np.ndarray = np.where((mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD), 255, 0).astype(
+        np.uint8
+    )
+    fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(fg)
+    if count > 1:
+        largest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+        fg = np.where(labels == largest, 255, 0).astype(np.uint8)
+    contours, _ = cv2.findContours(fg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    fg = np.zeros_like(fg)
+    cv2.drawContours(fg, contours, -1, 255, thickness=cv2.FILLED)  # fill holes (reflections)
+    fg = cv2.erode(fg, np.ones((3, 3), np.uint8))
+    return cv2.resize(fg, (w, h), interpolation=cv2.INTER_NEAREST)
+
+
+def mask_score(mask: np.ndarray) -> float:
+    """How usable a foreground mask is for a relief: a large, compact object
+    that does not touch the photo border scores high (0..1)."""
+    area = float((mask > 0).mean())
+    if area < 0.03:
+        return 0.0
+    contours, _ = cv2.findContours(
+        (mask > 0).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    hull = cv2.convexHull(max(contours, key=cv2.contourArea))
+    solidity = float((mask > 0).sum()) / max(float(cv2.contourArea(hull)), 1.0)
+    border = np.concatenate([mask[0], mask[-1], mask[:, 0], mask[:, -1]])
+    touches = float((border > 0).mean())
+    size = min(area / 0.35, 1.0)  # the object filling ~35 % of the frame is plenty
+    return size * min(solidity, 1.0) * (1.0 - touches)

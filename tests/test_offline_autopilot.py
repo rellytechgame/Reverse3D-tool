@@ -250,21 +250,51 @@ class TestAutoRun:
         assert methods == ["otsu", "adaptive"]
         assert [a["ok"] for a in summary["auto"]["attempts"]] == [False, True]
 
-    def test_capture_problems_are_not_retried(
+    def test_unusable_photos_fall_back_to_a_relief(
         self, tmp_path: Path, settings: Settings, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         for i in range(3):
             _photo(tmp_path / "fotos" / f"{i}.jpg", seed=i)
         calls: list[str] = []
 
-        def blurry(*_a: Any, **_k: Any) -> Any:
-            calls.append("x")
-            raise CaptureQualityError("Photos are blurry.", hint="Retake them.")
+        def fake(recipe: str, src: Path, out: Path, s: Settings, opt: RecipeOptions) -> Any:
+            calls.append(recipe)
+            if recipe == "photos_to_model":
+                raise CaptureQualityError(
+                    "The photo set is not suitable for photogrammetry: retake.", hint="Retake."
+                )
+            assert src.suffix == ".jpg"  # a single photo, picked from the set
+            return {
+                "recipe": recipe,
+                "outputs": {"model": str(out / "model.stl")},
+                "warnings": ["Monocular depth is relative."],
+                "dimensions": {"watertight": False},
+            }
 
-        monkeypatch.setattr(autopilot, "run_recipe", blurry)
+        monkeypatch.setattr(autopilot, "run_recipe", fake)
+        summary = autopilot.auto_run(tmp_path / "fotos", tmp_path / "o", settings)
+        # Photogrammetry is not retried with other settings: it goes to the fallback.
+        assert calls == ["photos_to_model", "photo_to_relief"]
+        assert summary["fallback"]["from"] == "photos_to_model"
+        assert summary["warnings"][0].startswith("A full 3D model could not be reconstructed")
+        assert [a["ok"] for a in summary["auto"]["attempts"]] == [False, True]
+        assert summary["next_steps"][0].startswith("Para un modelo 3D completo")
+        assert (tmp_path / "o" / "RESUMEN.md").is_file()
+
+    def test_capture_error_is_kept_when_the_fallback_fails(
+        self, tmp_path: Path, settings: Settings, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        for i in range(3):
+            _photo(tmp_path / "fotos" / f"{i}.jpg", seed=i)
+
+        def failing(recipe: str, *_a: Any, **_k: Any) -> Any:
+            if recipe == "photos_to_model":
+                raise CaptureQualityError("Photos are blurry.", hint="Retake them.")
+            raise ProcessingError("Depth estimation failed.")
+
+        monkeypatch.setattr(autopilot, "run_recipe", failing)
         with pytest.raises(CaptureQualityError):
             autopilot.auto_run(tmp_path / "fotos", tmp_path / "o", settings)
-        assert calls == ["x"]
 
     def test_auto_recipe_and_sandboxed_tool(
         self, plan_image: Path, tmp_path: Path, settings: Settings

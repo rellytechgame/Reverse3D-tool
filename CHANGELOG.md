@@ -2,6 +2,19 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.5.0] — 2026-10-16
+
+### Fotos difíciles: siempre hay un resultado
+- **El análisis de fotos ya no depende del orden.** Antes solo comparaba cada foto con la siguiente y rechazaba sets tomados sin orden. Ahora compara todas contra todas (hasta 80 fotos; las características se calculan una sola vez por foto) y mide qué parte del set forma un grupo que se solapa, que es lo que necesita COLMAP. El informe incluye `connected_images`.
+- **Reconstrucción con el grupo que sí funciona.** Si solo una parte de las fotos se solapa (8 o más), `photos_to_model` reconstruye con esas y avisa de cuántas omitió, en lugar de detenerse.
+- **Plan B del piloto automático.** Si con las fotos no se puede hacer fotogrametría (no se solapan, superficies brillantes, luces que cambian, objeto movido), `reverse3d auto` entrega igualmente un modelo 3D: un modelo aproximado hecho con IA a partir de la mejor foto, marcado como tal (`fallback` en el resumen), y explica cómo tomar las fotos para obtener el modelo completo. Para elegir la foto, recorta el objeto en cada una (GrabCut) y se queda con la que lo muestra más grande, entero y nítido. Después separa el objeto de la mesa o el mousepad midiendo su altura sobre el plano de apoyo (la profundidad con IA menos el plano ajustado alrededor) y genera un **sólido cerrado e imprimible**: superficie superior suavizada, base plana y bordes redondeados (`object_solid`). La máscara se guarda como `fallback_mask.png`. Si también falla, se mantiene el error original con sus recomendaciones.
+
+- **Control de calidad antes de la fase densa.** Si COLMAP ubica menos de 5 fotos o menos de 1.000 puntos 3D, se detiene antes de la reconstrucción densa (la etapa lenta) en lugar de producir una malla inservible; el piloto automático pasa al plan B.
+- **Relieves livianos con fotos de móvil.** La densidad del relieve se ajusta al tamaño de la imagen (como máximo unos 500.000 vértices): una foto de 12 MP ya no genera una malla de 18 millones de caras.
+
+### Fotos de iPhone (HEIC)
+- **HEIC y HEIF se aceptan directamente**, sueltas o en carpetas. Se convierten a JPEG conservando el EXIF (la distancia focal ayuda a COLMAP). Nueva dependencia: `pillow-heif`.
+
 ## [0.4.0] — 2026-10-16
 
 ### Funciona sin internet

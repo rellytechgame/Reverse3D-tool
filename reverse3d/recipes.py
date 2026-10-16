@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import shutil
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -71,6 +73,8 @@ class RecipeOptions:
     overwrite: bool = False
     #: plan_to_part: how the drawing is separated from the background.
     mask_method: MaskMethod = "otsu"
+    #: photo_to_relief: object mask (white = keep), e.g. from the autopilot fallback.
+    mask_path: str | None = None
     #: mesh repair strength; "strong" closes much larger holes.
     repair: Literal["normal", "strong"] = "normal"
 
@@ -184,13 +188,33 @@ def _measure(run: _Run, mesh: Path) -> MeshStats:
 # ─── recipes ──────────────────────────────────────────────────────────────────
 
 
+# Smallest overlapping group worth reconstructing when the rest of a set does not match.
+_MIN_GROUP = 8
+
+
 def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
     from reverse3d.reconstruction.photogrammetry import PhotogrammetryOptions, run_photogrammetry
     from reverse3d.vision.feature_matcher import analyze_image_set
 
     analysis = run.step("analyze", lambda: analyze_image_set(src, run.settings))
     run.details["analysis"] = analysis.to_dict()
-    if not analysis.suitable_for_photogrammetry:
+    if not analysis.suitable_for_photogrammetry and analysis.connected_images >= _MIN_GROUP:
+        # Part of the set overlaps well: reconstruct from that group only.
+        dropped = set(analysis.weak_links)
+        group_dir = run.out / "photos_used"
+        group_dir.mkdir(parents=True, exist_ok=True)
+        for image in sorted(src.iterdir()):
+            if image.is_file() and image.name not in dropped and not image.name.startswith("."):
+                target = group_dir / image.name
+                if not target.exists():
+                    shutil.copy2(image, target)
+        run.warnings.append(
+            f"Used the {analysis.connected_images} photos that overlap; skipped "
+            f"{len(dropped)} that do not match the rest."
+        )
+        run.details["photos_used"] = analysis.connected_images
+        src = group_dir
+    elif not analysis.suitable_for_photogrammetry:
         if not opt.force_analysis:
             raise CaptureQualityError(
                 "The photo set is not suitable for photogrammetry: "
@@ -290,8 +314,23 @@ def _scan_to_cad(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
     return stats
 
 
+# A relief mesh has one vertex per sampled pixel: keep phone photos (12+ MP) light.
+_RELIEF_MAX_VERTICES = 500_000
+
+
+def _relief_stride(src: Path, minimum: int) -> int:
+    """Pixel step so the relief stays under ``_RELIEF_MAX_VERTICES`` vertices."""
+    from PIL import Image
+
+    with Image.open(src) as image:
+        width, height = image.size
+    return max(minimum, math.ceil(math.sqrt(width * height / _RELIEF_MAX_VERTICES)))
+
+
 def _photo_to_relief(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
     from reverse3d.reconstruction.depth_estimation import estimate_depth
+
+    stride = _relief_stride(src, profile_values(run.settings).depth_stride)
 
     depth = run.step(
         "depth",
@@ -300,15 +339,43 @@ def _photo_to_relief(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
             run.out / "depth",
             run.settings,
             device=torch_device(run.settings),
-            stride=profile_values(run.settings).depth_stride,
+            stride=stride,
+            mask_path=opt.mask_path,
             overwrite=opt.overwrite,
         ),
     )
     run.details["depth"] = depth.to_dict()
+    model = run.out / "model.stl"
+    if opt.mask_path:
+        # The object is isolated: build a closed solid standing on its surface.
+        import numpy as np
+
+        from reverse3d.imaging import load_image
+        from reverse3d.mesh_io import save_mesh
+        from reverse3d.reconstruction.depth_estimation import object_solid
+
+        disparity = np.load(depth.depth_npy_path, allow_pickle=False)
+        mask = load_image(opt.mask_path, run.settings, flags=0)
+        solid = run.step("solid", lambda: object_solid(disparity, mask, stride=stride))
+        solid_path = save_mesh(solid, run.out / "depth" / "object_solid.ply", overwrite=True)
+        run.warnings.append(
+            "Single-photo model: the hidden side is flat and the height is estimated, "
+            "so proportions are approximate."
+        )
+        _clean(
+            run,
+            Path(solid_path),
+            model,
+            scale=opt.scale,
+            overwrite=opt.overwrite,
+            fill_holes=True,
+            align="obb",
+            keep_largest=True,
+        )
+        return _measure(run, model)
     run.warnings.append("Monocular depth is relative: shape is approximate, not metric.")
     if depth.mesh_path is None:  # pragma: no cover - make_mesh is always on here
         raise ProcessingError("Depth estimation produced no mesh.")
-    model = run.out / "model.stl"
     _clean(
         run,
         Path(depth.mesh_path),
@@ -366,7 +433,12 @@ def run_recipe(
     out = prepare_output_dir(output_dir)
     run = _Run(recipe=recipe, settings=settings, out=out)
     start = time.perf_counter()
-    stats = _RECIPES[recipe](run, Path(input_path), opt)
+    source = Path(input_path)
+    if recipe != "scan_to_cad" and recipe != "mesh_report":
+        from reverse3d.imaging import prepare_heic_input
+
+        source = prepare_heic_input(source, out)  # iPhone HEIC photos -> JPEG
+    stats = _RECIPES[recipe](run, source, opt)
     if opt.render:
         _render(run, Path(run.outputs["model"]), opt.overwrite)
 

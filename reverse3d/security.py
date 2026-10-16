@@ -34,6 +34,8 @@ from reverse3d.errors import (
 logger = logging.getLogger(__name__)
 
 IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"})
+#: iPhone / modern camera photos; converted to JPEG before processing.
+HEIC_EXTENSIONS = frozenset({".heic", ".heif"})
 MESH_EXTENSIONS = frozenset({".stl", ".obj", ".ply", ".glb", ".gltf", ".off"})
 POINT_CLOUD_EXTENSIONS = frozenset({".ply", ".xyz", ".pcd"})
 JSON_EXTENSIONS = frozenset({".json"})

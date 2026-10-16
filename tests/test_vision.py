@@ -10,7 +10,7 @@ import pytest
 from reverse3d.config import Settings
 from reverse3d.errors import InputValidationError, ProcessingError
 from reverse3d.imaging import load_image
-from reverse3d.vision.feature_matcher import analyze_image_set, match_pair
+from reverse3d.vision.feature_matcher import _largest_group, analyze_image_set, match_pair
 from reverse3d.vision.mask_extractor import extract_mask, silhouette_to_mesh
 
 
@@ -120,3 +120,10 @@ class TestFeatureMatching:
         assert len(report.pairs) == 1
         assert report.suitable_for_photogrammetry is False  # only 2 images
         assert any("20-40" in r for r in report.recommendations)
+
+
+def test_largest_group_ignores_capture_order() -> None:
+    # 0-3 and 3-5 overlap (photos taken out of order); 6 and 7 match only each other.
+    edges = [(0, 3), (5, 3), (1, 5), (6, 7)]
+    assert _largest_group(8, edges) == {0, 1, 3, 5}
+    assert _largest_group(3, []) in ({0}, {1}, {2})

@@ -8,6 +8,7 @@ textured enough and overlapping enough, and get actionable recommendations.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -30,6 +31,11 @@ _ANALYSIS_MAX_DIM = 1600
 _BLUR_THRESHOLD = 100.0
 _MIN_KEYPOINTS = 500
 _MIN_PAIR_INLIERS = 40
+# Set analysis: features per image, and how many images still get all-pairs matching.
+_SET_FEATURES = 3000
+_ALL_PAIRS_LIMIT = 80
+# Share of the photos that must form one overlapping group.
+_MIN_CONNECTED_SHARE = 0.7
 
 
 @dataclass
@@ -71,6 +77,8 @@ class ImageSetReport:
     weak_links: list[str]
     suitable_for_photogrammetry: bool
     recommendations: list[str]
+    #: photos in the largest group that overlaps well (what a reconstruction can use).
+    connected_images: int = 0
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -126,6 +134,49 @@ def assess_image(path: Path, settings: Settings, detector: Detector = "sift") ->
     )
 
 
+def _verified_matches(
+    kp_a: Sequence[cv2.KeyPoint],
+    des_a: np.ndarray | None,
+    kp_b: Sequence[cv2.KeyPoint],
+    des_b: np.ndarray | None,
+    detector: Detector,
+    ratio: float = 0.75,
+) -> tuple[list[cv2.DMatch], list[cv2.DMatch]]:
+    """Lowe's ratio test, then RANSAC on the fundamental matrix: (tentative, inliers)."""
+    tentative: list[cv2.DMatch] = []
+    if des_a is not None and des_b is not None and len(des_a) >= 2 and len(des_b) >= 2:
+        matcher = cv2.BFMatcher(_norm_type(detector))
+        for pair in matcher.knnMatch(des_a, des_b, k=2):
+            if len(pair) == 2 and pair[0].distance < ratio * pair[1].distance:
+                tentative.append(pair[0])
+    inliers: list[cv2.DMatch] = []
+    if len(tentative) >= 8:
+        pts_a = np.asarray([kp_a[m.queryIdx].pt for m in tentative], dtype=np.float32)
+        pts_b = np.asarray([kp_b[m.trainIdx].pt for m in tentative], dtype=np.float32)
+        _, inlier_mask = cv2.findFundamentalMat(pts_a, pts_b, cv2.FM_RANSAC, 1.5, 0.999)
+        if inlier_mask is not None:
+            inliers = [m for m, ok in zip(tentative, inlier_mask.ravel(), strict=True) if ok]
+    return tentative, inliers
+
+
+def _largest_group(n: int, edges: list[tuple[int, int]]) -> set[int]:
+    """Largest set of images linked (directly or through others) by good pairs."""
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for a, b in edges:
+        parent[find(a)] = find(b)
+    groups: dict[int, set[int]] = {}
+    for i in range(n):
+        groups.setdefault(find(i), set()).add(i)
+    return max(groups.values(), key=len) if groups else set()
+
+
 def match_pair(
     image_a: str | Path,
     image_b: str | Path,
@@ -159,20 +210,7 @@ def match_pair(
     kp_a, des_a = feat.detectAndCompute(_gray(img_a), None)
     kp_b, des_b = feat.detectAndCompute(_gray(img_b), None)
 
-    tentative: list[cv2.DMatch] = []
-    if des_a is not None and des_b is not None and len(des_a) >= 2 and len(des_b) >= 2:
-        matcher = cv2.BFMatcher(_norm_type(detector))
-        for pair in matcher.knnMatch(des_a, des_b, k=2):
-            if len(pair) == 2 and pair[0].distance < ratio * pair[1].distance:
-                tentative.append(pair[0])
-
-    inlier_matches: list[cv2.DMatch] = []
-    if len(tentative) >= 8:
-        pts_a = np.asarray([kp_a[m.queryIdx].pt for m in tentative], dtype=np.float32)
-        pts_b = np.asarray([kp_b[m.trainIdx].pt for m in tentative], dtype=np.float32)
-        _, inlier_mask = cv2.findFundamentalMat(pts_a, pts_b, cv2.FM_RANSAC, 1.5, 0.999)
-        if inlier_mask is not None:
-            inlier_matches = [m for m, ok in zip(tentative, inlier_mask.ravel(), strict=True) if ok]
+    tentative, inlier_matches = _verified_matches(kp_a, des_a, kp_b, des_b, detector, ratio)
 
     vis_out: str | None = None
     if visualization_path is not None:
@@ -209,11 +247,13 @@ def analyze_image_set(
     detector: Detector = "sift",
     max_pairs: int = 60,
 ) -> ImageSetReport:
-    """Assess every image in ``image_dir`` and match consecutive pairs.
+    """Assess every image in ``image_dir`` and check how well the set overlaps.
 
-    Images are assumed to be captured in order around the object (the usual
-    turntable / walk-around workflow). Pairs ``(i, i+1)`` and the closing pair
-    ``(n-1, 0)`` are matched, up to ``max_pairs``.
+    The photos do not need to be in capture order: up to ``_ALL_PAIRS_LIMIT``
+    images every pair is matched (features are computed once per image); larger
+    sets match each image with its next neighbours. The set is suitable when
+    most photos form one overlapping group, which is what COLMAP needs.
+    ``max_pairs`` limits how many pairs are listed in the report.
     """
     if not 1 <= max_pairs <= 1000:
         raise InputValidationError("max_pairs must be in [1, 1000].")
@@ -222,18 +262,50 @@ def analyze_image_set(
         directory, max_images=settings.max_images, max_bytes=settings.max_input_bytes
     )
     qualities = [assess_image(p, settings, detector) for p in images]
-
-    pairs: list[PairMatch] = []
-    if len(images) >= 2:
-        indices = [(i, i + 1) for i in range(len(images) - 1)]
-        if len(images) > 2:
-            indices.append((len(images) - 1, 0))
-        for i, j in indices[:max_pairs]:
-            pairs.append(match_pair(images[i], images[j], settings, detector=detector))
-
-    weak = [f"{p.image_a} <-> {p.image_b}" for p in pairs if p.inliers < _MIN_PAIR_INLIERS]
-    recommendations: list[str] = []
     n = len(images)
+
+    feat = _create_detector(detector, _SET_FEATURES)
+    features = []
+    for path in images:
+        small, _ = downscale(load_image(path, settings), _ANALYSIS_MAX_DIM)
+        features.append(feat.detectAndCompute(_gray(small), None))
+    if n <= _ALL_PAIRS_LIMIT:
+        candidates = [(i, j) for i in range(n) for j in range(i + 1, n)]
+    else:
+        candidates = [(i, j) for i in range(n) for j in range(i + 1, min(n, i + 4))]
+        candidates.append((n - 1, 0))
+
+    best: dict[int, PairMatch] = {}
+    good: list[tuple[int, int]] = []
+    for i, j in candidates:
+        (kp_a, des_a), (kp_b, des_b) = features[i], features[j]
+        tentative, inliers = _verified_matches(kp_a, des_a, kp_b, des_b, detector)
+        pair = PairMatch(
+            image_a=images[i].name,
+            image_b=images[j].name,
+            detector=detector,
+            keypoints_a=len(kp_a),
+            keypoints_b=len(kp_b),
+            tentative_matches=len(tentative),
+            inliers=len(inliers),
+            inlier_ratio=round(len(inliers) / len(tentative), 3) if tentative else 0.0,
+        )
+        if len(inliers) >= _MIN_PAIR_INLIERS:
+            good.append((i, j))
+        for k in (i, j):
+            if k not in best or pair.inliers > best[k].inliers:
+                best[k] = pair
+    group = _largest_group(n, good) if n >= 2 else set(range(n))
+    # Each photo's strongest partner, without duplicates.
+    pairs: list[PairMatch] = []
+    for k in sorted(best):
+        if best[k] not in pairs:
+            pairs.append(best[k])
+    pairs = pairs[:max_pairs]
+    connected = len(group)
+
+    weak = [images[k].name for k in range(n) if k not in group]
+    recommendations: list[str] = []
     if n < 3:
         recommendations.append(
             "Capture at least 20-40 photos around the object for photogrammetry."
@@ -253,11 +325,12 @@ def analyze_image_set(
         recommendations.append("Fix exposure: use diffuse, even lighting and avoid glare.")
     if weak:
         recommendations.append(
-            f"{len(weak)} consecutive pair(s) share few matches: add intermediate shots."
+            f"{len(weak)} of {n} photo(s) do not overlap with the rest: take intermediate "
+            "shots, keep the object still and the lighting constant."
         )
 
     bad_ratio = sum(1 for q in qualities if q.issues) / max(n, 1)
-    suitable = n >= 3 and bad_ratio <= 0.3 and len(weak) <= max(1, len(pairs) // 5)
+    suitable = n >= 3 and bad_ratio <= 0.3 and connected >= _MIN_CONNECTED_SHARE * n
     if suitable and not recommendations:
         recommendations.append("Image set looks suitable for photogrammetry.")
 
@@ -269,4 +342,5 @@ def analyze_image_set(
         weak_links=weak,
         suitable_for_photogrammetry=suitable,
         recommendations=recommendations,
+        connected_images=connected,
     )

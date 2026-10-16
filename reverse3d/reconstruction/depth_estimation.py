@@ -29,7 +29,7 @@ import numpy as np
 import trimesh
 
 from reverse3d.config import Settings
-from reverse3d.errors import DependencyMissingError, InputValidationError
+from reverse3d.errors import DependencyMissingError, InputValidationError, ProcessingError
 from reverse3d.imaging import load_image, save_image
 from reverse3d.mesh_io import save_mesh
 from reverse3d.security import prepare_output_dir, prepare_output_file
@@ -261,3 +261,101 @@ def estimate_depth(
         height=h,
         mesh_faces=faces,
     )
+
+
+def height_above_support(mask: np.ndarray, disparity: np.ndarray) -> np.ndarray:
+    """Disparity minus the plane fitted to the surface around the object.
+
+    Photos look down at an angle, so the desk itself gets nearer towards the
+    bottom of the frame; removing that plane leaves how much each pixel stands
+    out from the surface the object rests on.
+    """
+    h, w = disparity.shape
+    ring = cv2.dilate(mask, np.ones((41, 41), np.uint8)) > 0
+    around = ring & (mask == 0)
+    if around.sum() < 200:
+        around = mask == 0
+    ys, xs = np.nonzero(around)
+    step = max(1, len(xs) // 20000)
+    xs, ys = xs[::step], ys[::step]
+    design = np.column_stack([xs, ys, np.ones_like(xs)]).astype(np.float64)
+    coeffs, *_ = np.linalg.lstsq(design, disparity[ys, xs].astype(np.float64), rcond=None)
+    grid_y, grid_x = np.mgrid[0:h, 0:w]
+    plane = coeffs[0] * grid_x + coeffs[1] * grid_y + coeffs[2]
+    return disparity - plane
+
+
+def object_solid(
+    disparity: np.ndarray,
+    mask: np.ndarray,
+    *,
+    stride: int = 4,
+    height_ratio: float = 0.35,
+    smooth_px: int = 9,
+) -> trimesh.Trimesh:
+    """Closed, printable solid of the object in a photo: smoothed height above
+    the surface it rests on, a flat base and side walls.
+
+    ``height_ratio`` sets the tallest point relative to the object's longest
+    side (single-photo depth has no scale; 0.35 suits most hand-held objects).
+
+    Raises:
+        ProcessingError: the mask is empty or the object has no height.
+    """
+    inside = mask > 0
+    if inside.sum() < 100:
+        raise ProcessingError("The object mask is empty.")
+    k = smooth_px | 1
+    height = height_above_support(np.where(inside, 255, 0).astype(np.uint8), disparity)
+    weights = inside.astype(np.float32)
+    num = cv2.GaussianBlur(np.where(inside, height, 0).astype(np.float32), (k, k), 0)
+    den = cv2.GaussianBlur(weights, (k, k), 0)
+    height = np.where(inside, num / np.maximum(den, 1e-6), 0)
+    # Smooth outline: no jagged pixel stairs on the side walls.
+    outline = cv2.GaussianBlur(weights * 255, (2 * k + 1, 2 * k + 1), 0) > 127
+    h = height[::stride, ::stride]
+    keep = outline[::stride, ::stride]
+    if keep.sum() < 16:
+        raise ProcessingError("The object is too small in the photo.")
+    h = np.clip(h - np.percentile(h[keep], 2), 0, None)
+    peak = float(h[keep].max())
+    if peak <= 0:
+        raise ProcessingError("The object shows no height above its surface.")
+    ys, xs = np.nonzero(keep)
+    extent = float(max(np.ptp(xs), np.ptp(ys)) + 1)
+    z = h / peak * height_ratio * extent
+    # Round the outline: height eases to a low rim instead of a vertical cliff.
+    rim = cv2.distanceTransform(keep.astype(np.uint8), cv2.DIST_L2, 5)
+    z = z * (0.15 + 0.85 * np.sqrt(np.clip(rim / (0.08 * extent), 0.0, 1.0)))
+
+    index = -np.ones(keep.shape, dtype=np.int64)
+    index[keep] = np.arange(int(keep.sum()))
+    # A thin base slab keeps the top and bottom apart everywhere (closed solid).
+    base = 0.03 * extent
+    top = np.column_stack([xs, -ys, z[ys, xs] + base]).astype(np.float64)
+    bottom = top.copy()
+    bottom[:, 2] = 0.0
+    a, b = index[:-1, :-1], index[:-1, 1:]
+    c, d_ = index[1:, :-1], index[1:, 1:]
+    ok = (a >= 0) & (b >= 0) & (c >= 0) & (d_ >= 0)
+    a, b, c, d_ = a[ok], b[ok], c[ok], d_[ok]
+    top_faces = np.vstack([np.column_stack([a, c, b]), np.column_stack([b, c, d_])])
+    n = len(top)
+    bottom_faces = top_faces[:, ::-1] + n
+    edges = np.vstack([top_faces[:, [0, 1]], top_faces[:, [1, 2]], top_faces[:, [2, 0]]])
+    _, inverse, counts = np.unique(
+        np.sort(edges, axis=1), axis=0, return_inverse=True, return_counts=True
+    )
+    border = edges[counts[inverse.ravel()] == 1]
+    walls = np.vstack(
+        [
+            np.column_stack([border[:, 1], border[:, 0], border[:, 0] + n]),
+            np.column_stack([border[:, 1], border[:, 0] + n, border[:, 1] + n]),
+        ]
+    )
+    solid = trimesh.Trimesh(
+        np.vstack([top, bottom]), np.vstack([top_faces, bottom_faces, walls]), process=True
+    )
+    solid.remove_unreferenced_vertices()
+    trimesh.repair.fix_normals(solid)
+    return solid

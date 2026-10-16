@@ -41,6 +41,7 @@ dependencies = [
     "scipy>=1.11",
     "opencv-python-headless>=4.9",
     "pillow>=10.3",
+    "pillow-heif>=1.1",
     "trimesh>=4.4",
     "shapely>=2.0",
     "mapbox-earcut>=1.0",

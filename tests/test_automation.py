@@ -443,7 +443,7 @@ def test_colmap_without_cuda_degrades_to_cpu(
             (Path(args[args.index("--output_path") + 1]) / "0").mkdir()
         if args[0] == "model_converter":
             Path(args[args.index("--output_path") + 1]).write_text("ply")
-        return subprocess.CompletedProcess(args, 0, "", "Registered images: 3\nPoints: 9")
+        return subprocess.CompletedProcess(args, 0, "", "Registered images: 6\nPoints: 6000")
 
     monkeypatch.setattr(pg, "run_command", fake)
     result = pg.ColmapPipeline(settings, executable=Path("colmap")).run(

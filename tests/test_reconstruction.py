@@ -51,10 +51,13 @@ class TestDepthToMesh:
 class FakeColmap:
     """Stand-in for ``run_command`` that emulates COLMAP's side effects."""
 
-    def __init__(self, help_text: str, fail: set[str] | None = None) -> None:
+    def __init__(
+        self, help_text: str, fail: set[str] | None = None, points_per_image: int = 1000
+    ) -> None:
         self.calls: list[list[str]] = []
         self.help_text = help_text
         self.fail = fail or set()
+        self.points_per_image = points_per_image
 
     def __call__(
         self, executable: Path, args: list[str], **_: Any
@@ -76,7 +79,7 @@ class FakeColmap:
         elif command == "model_analyzer":
             n = 5 if opt("--path").endswith("1") else 2
             return subprocess.CompletedProcess(
-                args, 0, "", f"Registered images: {n}\nPoints: {n * 100}"
+                args, 0, "", f"Registered images: {n}\nPoints: {n * self.points_per_image}"
             )
         elif command == "model_converter":
             Path(opt("--output_path")).write_text("ply\n")
@@ -142,6 +145,15 @@ class TestColmapPipeline:
             and "--SiftExtraction.max_image_size" in extractor
         )
         assert any(c[0] == "sequential_matcher" for c in fake.calls)
+
+    def test_thin_sparse_model_stops_before_dense(
+        self, settings: Settings, photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = FakeColmap("", points_per_image=100)
+        pipeline = self._pipeline(settings, fake, monkeypatch)
+        with pytest.raises(ProcessingError, match="too little"):
+            pipeline.run(photo_dir, tmp_path / "r", pg.PhotogrammetryOptions(use_gpu=True))
+        assert not any(call[0] == "patch_match_stereo" for call in fake.calls)
 
     def test_dense_failure_degrades_in_auto(
         self, settings: Settings, photo_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -217,3 +229,26 @@ class TestColmapPipeline:
     def test_invalid_options(self, options: pg.PhotogrammetryOptions) -> None:
         with pytest.raises(InputValidationError):
             options.validate()
+
+
+def test_object_solid_is_closed_and_stands_on_its_base() -> None:
+    from reverse3d.reconstruction.depth_estimation import object_solid
+
+    yy, xx = np.mgrid[0:200, 0:200]
+    r2 = (xx - 100) ** 2 + (yy - 100) ** 2
+    mask = np.where(r2 < 60**2, 255, 0).astype(np.uint8)
+    # Disparity: a tilted desk plane plus a dome where the object is.
+    disparity = 0.002 * yy + np.where(mask > 0, np.sqrt(np.clip(60**2 - r2, 0, None)) / 60, 0)
+    solid = object_solid(disparity.astype(np.float32), mask, stride=2)
+    assert solid.is_watertight
+    assert solid.volume > 0
+    assert solid.bounds[0][2] == pytest.approx(0.0)
+    width = solid.extents[0]
+    assert 0.2 * width < solid.extents[2] < 0.5 * width
+
+
+def test_object_solid_rejects_empty_mask() -> None:
+    from reverse3d.reconstruction.depth_estimation import object_solid
+
+    with pytest.raises(ProcessingError):
+        object_solid(np.zeros((50, 50), np.float32), np.zeros((50, 50), np.uint8))
