@@ -119,7 +119,7 @@ class TestFeatureMatching:
         assert report.image_count == 2
         assert len(report.pairs) == 1
         assert report.suitable_for_photogrammetry is False  # only 2 images
-        assert any("20-40" in r for r in report.recommendations)
+        assert any("at least 20 photos" in r for r in report.recommendations)
 
 
 def test_largest_group_ignores_capture_order() -> None:

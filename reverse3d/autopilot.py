@@ -68,6 +68,14 @@ KIND_LABEL_ES: dict[str, str] = {
 }
 
 _MIN_PHOTOS = 3
+
+#: Capture guide in one sentence (docs/captura.md has the full guide; Studio shows it too).
+CAPTURE_ADVICE_ES = (
+    "Para un modelo 3D completo: 40-60 fotos (mínimo 20) en 4 perfiles: anillo bajo a 10-20° "
+    "(16 fotos), medio a 35-45° (16), alto a 60-70° (12) y 4 desde arriba; con 60-80 % de "
+    "solape, sin mover el objeto, luz pareja y sin reflejos (luces RGB apagadas; en superficies "
+    "brillantes, spray mate o talco). Guía completa: docs/captura.md."
+)
 _ANALYSIS_SIDE = 256
 
 
@@ -149,7 +157,7 @@ def detect_input(path: str | Path) -> Detection:
                 "unknown",
                 None,
                 f"only {len(images)} photos: photogrammetry needs at least {_MIN_PHOTOS} "
-                "(ideally 20-60)",
+                "(ideally 40-60)",
                 str(src),
             )
         return Detection("unknown", None, "no photos, drawings or 3D files in the folder", str(src))
@@ -388,11 +396,7 @@ def auto_run(
 
     if summary is None and detection.kind == "photos" and last_error is not None:
         reason = last_error.message.split(":", 1)[0].rstrip(".")
-        capture_advice = [
-            "Para un modelo 3D completo: 30-60 fotos en orden alrededor del objeto, sin moverlo, "
-            "con luz pareja y sin reflejos (las luces RGB apagadas; en superficies brillantes, "
-            "spray mate o talco).",
-        ]
+        capture_advice = [CAPTURE_ADVICE_ES]
         try:
             summary = _relief_fallback(source, out, settings, base, reason, history)
         except Reverse3DError as exc:

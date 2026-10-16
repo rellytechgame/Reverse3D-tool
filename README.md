@@ -358,6 +358,8 @@ Si las fotos están borrosas o falta una herramienta, **no reintenta en vano**: 
 
 **Formatos:** imágenes `png jpg jpeg tif tiff bmp webp`, y fotos de iPhone `heic heif` (se convierten a JPEG conservando el EXIF) · mallas `stl obj ply glb gltf off` · nubes `ply xyz pcd`.
 
+**¿Cómo tomar las fotos?** Mínimo 20, recomendadas 40-60, en 4 perfiles (anillos a 10-20°, 35-45° y 60-70°, y 4 desde arriba), sin mover el objeto, con luz pareja y sin reflejos. Guía completa: [docs/captura.md](docs/captura.md).
+
 ---
 
 ## Herramientas externas opcionales

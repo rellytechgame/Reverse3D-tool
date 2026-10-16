@@ -308,10 +308,13 @@ def analyze_image_set(
     recommendations: list[str] = []
     if n < 3:
         recommendations.append(
-            "Capture at least 20-40 photos around the object for photogrammetry."
+            "Take at least 20 photos (40-60 recommended) around the object: three rings at "
+            "10-20, 35-45 and 60-70 degrees plus a few from above (see docs/captura.md)."
         )
     elif n < 15:
-        recommendations.append("Few images: add more viewpoints (aim for 60-80% overlap).")
+        recommendations.append(
+            "Few images: aim for 40-60 photos with 60-80% overlap between neighbours."
+        )
     blurry = [q.name for q in qualities if "blurry" in q.issues]
     if blurry:
         recommendations.append(

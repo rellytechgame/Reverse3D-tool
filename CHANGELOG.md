@@ -2,6 +2,11 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.5.1] — 2026-10-16
+
+### Guía de captura
+- **[docs/captura.md](docs/captura.md):** cuántas fotos hacen falta (mínimo 20, recomendadas 40-60, 80-150 para objetos grandes) y los 4 perfiles de foto (anillos a 10-20°, 35-45° y 60-70°, más 4 cenitales), con las reglas de luz, solape, encuadre y superficies. Las recomendaciones del análisis y del piloto automático usan las mismas cifras.
+
 ## [0.5.0] — 2026-10-16
 
 ### Fotos difíciles: siempre hay un resultado
