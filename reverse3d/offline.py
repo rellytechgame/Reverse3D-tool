@@ -55,6 +55,7 @@ MODEL_REVISIONS: dict[str, str] = {
     "depth-anything/Depth-Anything-V2-Base-hf": "b1958afc87fb45a9e3746cb387596094de553ed8",
     "depth-anything/Depth-Anything-V2-Large-hf": "7581137eff8d4e94f6e796d3baea0e9fa79b22d2",
     "facebook/sam-vit-base": "70c1a07f894ebb5b307fd9eaaee97b9dfc16068f",
+    "wkcn/TinyCLIP-ViT-40M-32-Text-19M-LAION400M": "95ec8197b3f2fe7f747865c61ca556cf0768b2f7",
 }
 
 
@@ -101,9 +102,10 @@ def is_offline(settings: Settings) -> bool:
 
 def _allowed_models() -> dict[str, tuple[str, str]]:
     from reverse3d.reconstruction.depth_estimation import ALLOWED_MODELS
+    from reverse3d.vision.classifier import ALLOWED_CLASSIFIERS
     from reverse3d.vision.segmenter import ALLOWED_SEGMENTERS
 
-    return {**ALLOWED_MODELS, **ALLOWED_SEGMENTERS}
+    return {**ALLOWED_MODELS, **ALLOWED_SEGMENTERS, **ALLOWED_CLASSIFIERS}
 
 
 def _default_model() -> str:
@@ -203,10 +205,12 @@ def prepare(settings: Settings, *, include_non_commercial: bool = False) -> dict
     Safe to run any time: models already on disk are skipped. It never raises
     for a missing optional stack; that is reported in the result instead.
     """
+    from reverse3d.vision.classifier import DEFAULT_CLASSIFIER
     from reverse3d.vision.segmenter import DEFAULT_SEGMENTER
 
-    # Depth (reliefs) and segmentation (object silhouettes), both commercial-friendly.
-    models = [_default_model(), DEFAULT_SEGMENTER]
+    # Depth (reliefs), segmentation (silhouettes) and the subject classifier,
+    # all commercial-friendly.
+    models = [_default_model(), DEFAULT_SEGMENTER, DEFAULT_CLASSIFIER]
     if include_non_commercial:
         models += [m for m in _allowed_models() if m not in models]
 
@@ -279,8 +283,18 @@ def offline_status(settings: Settings) -> dict[str, Any]:
 
     env = environment_report(settings, include_offline=False)
     caps: dict[str, bool] = env["capabilities"]  # type: ignore[assignment]
+    from reverse3d.vision.classifier import DEFAULT_CLASSIFIER
+    from reverse3d.vision.segmenter import DEFAULT_SEGMENTER
+
     depth_installed = bool(caps.get("depth_estimation"))
     model_on_disk = local_model_path(_default_model()) is not None
+    # The local AI team: what each model does, and whether it is on this computer.
+    ai_models = {
+        "ai_subject": DEFAULT_CLASSIFIER,
+        "ai_segmentation": DEFAULT_SEGMENTER,
+        "ai_depth": _default_model(),
+    }
+    on_disk = {key: local_model_path(model) is not None for key, model in ai_models.items()}
     internet = None if settings.offline != "auto" else has_internet()
 
     components = {
@@ -292,13 +306,27 @@ def offline_status(settings: Settings) -> dict[str, Any]:
             "available": caps.get("render_blender", False) or caps.get("render_pyvista", False),
             "offline": True,
         },
-        "ai_depth": {"available": depth_installed, "offline": depth_installed and model_on_disk},
+        **{
+            key: {"available": depth_installed, "offline": depth_installed and on_disk[key]}
+            for key in ai_models
+        },
     }
     missing = []
+    names = {
+        "ai_subject": "AI subject classifier",
+        "ai_segmentation": "AI segmentation",
+        "ai_depth": "AI depth",
+    }
     if depth_installed and not model_on_disk:
         missing.append(
             "AI depth model not downloaded yet: run `reverse3d offline prepare` while online."
         )
+    for key in ("ai_subject", "ai_segmentation"):
+        if depth_installed and not on_disk[key]:
+            missing.append(
+                f"{names[key]} model not downloaded yet: "
+                "run `reverse3d offline prepare` while online."
+            )
     working_offline = is_offline(settings)
     return {
         "mode": settings.offline,

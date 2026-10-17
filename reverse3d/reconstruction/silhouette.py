@@ -191,6 +191,65 @@ def _support_plane(
     return n, d
 
 
+def _vertex_colors(
+    mesh: trimesh.Trimesh,
+    views: list[_View],
+    images: list[tuple[np.ndarray, float]],
+    masks: list[np.ndarray] | None = None,
+) -> np.ndarray:
+    """Real colour of every vertex from the photos that see it head-on.
+
+    Each photo votes with weight cos(angle)^2 for the vertices that face it and
+    are not hidden (coarse depth buffer); vertices no photo sees get the median.
+    """
+    verts = np.asarray(mesh.vertices)
+    normals = np.asarray(mesh.vertex_normals)
+    total = np.zeros((len(verts), 3))
+    weight = np.zeros(len(verts))
+    for i, ((small, scale), view) in enumerate(zip(images, views, strict=True)):
+        # Only pixels of the object itself give colour (the carved hull is a bit
+        # larger than the object, so its rim would otherwise pick up background).
+        inner = (
+            cv2.erode(masks[i], np.ones((5, 5), np.uint8)) > 0
+            if masks is not None and masks[i].shape == small.shape[:2]
+            else None
+        )
+        center = -view.rotation.T @ view.translation
+        to_cam = center - verts
+        to_cam /= np.linalg.norm(to_cam, axis=1, keepdims=True)
+        facing = np.einsum("ij,ij->i", normals, to_cam)
+        uv, z = _project(verts, view)
+        u = uv[:, 0] * scale
+        v = uv[:, 1] * scale
+        h, w = small.shape[:2]
+        ok = (facing > 0.2) & (z > 0) & (u >= 0) & (v >= 0) & (u < w - 1) & (v < h - 1)
+        if not ok.any():
+            continue
+        # Coarse z-buffer: a vertex counts only if it is (about) the nearest in its cell.
+        cell = 4
+        cu = (u[ok] / cell).astype(np.int64)
+        cv_ = (v[ok] / cell).astype(np.int64)
+        zbuf = np.full(((h // cell) + 1, (w // cell) + 1), np.inf)
+        np.minimum.at(zbuf, (cv_, cu), z[ok])
+        depth_span = float(np.ptp(z[ok])) or 1.0
+        visible = z[ok] <= zbuf[cv_, cu] + 0.03 * depth_span
+        idx = np.flatnonzero(ok)[visible]
+        if inner is not None:
+            idx = idx[inner[v[idx].astype(np.int64), u[idx].astype(np.int64)]]
+        px = small[v[idx].astype(np.int64), u[idx].astype(np.int64)][:, ::-1].astype(np.float64)
+        wgt = facing[idx] ** 2
+        total[idx] += px * wgt[:, None]
+        weight[idx] += wgt
+    colors = np.zeros((len(verts), 4), np.uint8)
+    seen = weight > 0
+    rgb = np.zeros((len(verts), 3))
+    rgb[seen] = total[seen] / weight[seen, None]
+    rgb[~seen] = np.median(rgb[seen], axis=0) if seen.any() else 180
+    colors[:, :3] = np.clip(rgb, 0, 255).astype(np.uint8)
+    colors[:, 3] = 255
+    return colors
+
+
 def visual_hull(
     image_dir: Path,
     model_text_dir: Path,
@@ -332,6 +391,8 @@ def visual_hull(
         normal, offset = plane
         height = (grid @ normal + offset).reshape(n, n, n)
         volume[height < 0.015 * radius] = 0
+    # Drop structures thinner than a couple of voxels (stray spikes from a few views).
+    volume = ndimage.binary_opening(volume > 0.5, iterations=2).astype(np.float32)
     labels, count = ndimage.label(volume > 0.5)
     if count == 0:
         raise ProcessingError("No object could be isolated in the photos.")
@@ -356,6 +417,11 @@ def visual_hull(
     verts = (verts - 2) / (n - 1) * 2 * radius - radius + center
     mesh = trimesh.Trimesh(verts, faces, process=True)
     trimesh.smoothing.filter_taubin(mesh, lamb=0.5, nu=-0.53, iterations=15)
+    mesh.fix_normals()
+    # Real colours from the photos (kept by PLY export; the model gets them as GLB).
+    mesh.visual = trimesh.visual.ColorVisuals(
+        mesh, vertex_colors=_vertex_colors(mesh, views, images, masks)
+    )
 
     # Stand it upright: +Z along the table normal (or the mean camera "up").
     up = plane[0] if plane is not None else np.mean(cameras - center, axis=0)

@@ -112,3 +112,55 @@ def test_presets_and_advice_cover_every_scene() -> None:
         assert scene_advice(kind, preset.recommended[0])[0]
     assert not SCENE_PRESETS["architecture"].fill_holes
     assert SCENE_PRESETS["object"].fill_holes
+
+
+def _fake_subject(monkeypatch: pytest.MonkeyPatch, subject: str) -> None:
+    from reverse3d import scenes
+
+    monkeypatch.setattr(
+        scenes, "_ai_subject", lambda *_a: (subject, {subject: 0.9, "product": 0.1})
+    )
+
+
+@pytest.mark.parametrize(
+    ("subject", "kind", "render"),
+    [
+        ("person", "character", "portrait"),
+        ("animal", "character", "portrait"),
+        ("vehicle", "object", "showroom"),
+        ("building", "architecture", "architecture"),
+        ("forest", "landscape", "aerial"),
+    ],
+)
+def test_ai_subject_decides_scene_and_render(
+    tmp_path: Path,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    subject: str,
+    kind: str,
+    render: str,
+) -> None:
+    _fake_subject(monkeypatch, subject)
+    (tmp_path / "set").mkdir()
+    for i in range(4):
+        cv2.imwrite(str(tmp_path / "set" / f"{i}.jpg"), _facade())
+    detection = detect_scene(tmp_path / "set", settings)
+    assert (detection.kind, detection.render, detection.subject) == (kind, render, subject)
+    assert detection.reasons[0] == f"ai_{subject}" and detection.subject_label
+
+
+def test_a_drone_flight_is_terrain_whatever_the_ai_says(
+    tmp_path: Path, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_subject(monkeypatch, "building")
+    for i in range(6):
+        _gps_jpeg(tmp_path / "vuelo" / f"DJI_{i:04d}.jpg", 8.98 + i * 0.0005, -79.52)
+        # Gimbal pointing straight down, as DJI writes it in the XMP block.
+        path = tmp_path / "vuelo" / f"DJI_{i:04d}.jpg"
+        path.write_bytes(path.read_bytes() + b'<x drone-dji:GimbalPitchDegree="-90.0"/>')
+    detection = detect_scene(tmp_path / "vuelo", settings)
+    assert (detection.kind, detection.subject, detection.render) == (
+        "landscape",
+        "terrain",
+        "aerial",
+    )

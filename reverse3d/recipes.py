@@ -75,6 +75,9 @@ class RecipeOptions:
     mask_method: MaskMethod = "otsu"
     #: photos_to_model: scene profile (object, character, architecture, landscape) or "auto".
     scene: str = "auto"
+    #: what was photographed (AI classifier) and the render look; None = from the scene.
+    subject: str | None = None
+    render_preset: str | None = None
     #: photo_to_relief: object mask (white = keep), e.g. from the autopilot fallback.
     mask_path: str | None = None
     #: mesh repair strength; "strong" closes much larger holes.
@@ -156,15 +159,20 @@ def _clean(
 
 
 def _render(run: _Run, mesh: Path, overwrite: bool) -> None:
-    from reverse3d.rendering.blender_render import RenderOptions, render_mesh
+    from reverse3d.rendering.blender_render import RenderOptions, preset_options, render_mesh
 
     prof = profile_values(run.settings)
-    options = RenderOptions(
-        width=prof.render_width,
-        height=prof.render_height,
-        samples=prof.render_samples,
-        device="gpu" if wants_gpu(run.settings) else "cpu",
+    look = str(run.details.get("scene", {}).get("render") or "studio")
+    options = preset_options(
+        look,
+        RenderOptions(
+            width=prof.render_width,
+            height=prof.render_height,
+            samples=prof.render_samples,
+            device="gpu" if wants_gpu(run.settings) else "cpu",
+        ),
     )
+    run.details["render_look"] = look
     try:
         result = run.step(
             "render",
@@ -194,6 +202,36 @@ def _measure(run: _Run, mesh: Path) -> MeshStats:
 _MIN_GROUP = 8
 
 
+_DEFAULT_LOOK = {
+    "object": "studio",
+    "character": "portrait",
+    "architecture": "architecture",
+    "landscape": "aerial",
+}
+
+
+def _color_outputs(run: _Run, colored: Path, model: Path, scale: float) -> None:
+    """Give the final model the photo colours of the carved hull: model.glb (games,
+    web, viewers) and model_color.ply (renders)."""
+    import numpy as np
+    import trimesh
+    from scipy.spatial import cKDTree
+
+    source: Any = trimesh.load(colored, process=False, force="mesh")
+    target: Any = trimesh.load(model, process=False, force="mesh")
+    colors = getattr(source.visual, "vertex_colors", None)
+    if colors is None or len(colors) != len(source.vertices):
+        return
+    _, nearest = cKDTree(np.asarray(source.vertices) * scale).query(np.asarray(target.vertices))
+    target.visual = trimesh.visual.ColorVisuals(target, vertex_colors=np.asarray(colors)[nearest])
+    glb = run.out / "model.glb"
+    ply = run.out / "model_color.ply"
+    target.export(glb)
+    target.export(ply)
+    run.outputs["model_glb"] = str(glb)
+    run.outputs["model_color"] = str(ply)
+
+
 def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
     from reverse3d.reconstruction.photogrammetry import (
         PhotogrammetryOptions,
@@ -204,9 +242,11 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
     from reverse3d.vision.feature_matcher import analyze_image_set
 
     scene: str
+    subject, look = opt.subject, opt.render_preset
     if opt.scene == "auto":
         detection = run.step("scene", lambda: detect_scene(src, run.settings))
         scene, confidence, predicted = detection.kind, detection.confidence, True
+        subject, look = detection.subject, detection.render
     elif opt.scene in SCENE_PRESETS:
         scene, confidence, predicted = opt.scene, 1.0, False
     else:
@@ -219,6 +259,8 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
         "label": SCENE_LABEL_ES[scene],
         "confidence": confidence,
         "predicted": predicted,
+        "subject": subject,
+        "render": look or _DEFAULT_LOOK[scene],
     }
     analysis = run.step("analyze", lambda: analyze_image_set(src, run.settings))
     run.details["analysis"] = analysis.to_dict()
@@ -322,6 +364,11 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
         keep_largest=preset.keep_largest,
         repair=opt.repair,
     )
+    if upright:
+        try:
+            _color_outputs(run, Path(mesh_path), model, opt.scale)
+        except Exception as exc:  # colour is a bonus: never fail the model for it
+            logger.info("Colour transfer skipped: %s", exc)
     return _measure(run, model)
 
 
@@ -510,7 +557,7 @@ def run_recipe(
         source = prepare_heic_input(source, out)  # iPhone HEIC photos -> JPEG
     stats = _RECIPES[recipe](run, source, opt)
     if opt.render:
-        _render(run, Path(run.outputs["model"]), opt.overwrite)
+        _render(run, Path(run.outputs.get("model_color") or run.outputs["model"]), opt.overwrite)
 
     summary: dict[str, Any] = {
         "recipe": recipe,

@@ -136,8 +136,15 @@ def make_material(obj: bpy.types.Object, job: dict) -> None:
     obj.data.materials.append(mat)
 
 
-def add_light(name: str, location: tuple[float, float, float], energy: float, size: float) -> None:
+def add_light(
+    name: str,
+    location: tuple[float, float, float],
+    energy: float,
+    size: float,
+    color: tuple[float, float, float] = (1.0, 1.0, 1.0),
+) -> None:
     data = bpy.data.lights.new(name, type="AREA")
+    data.color = color
     data.energy = energy
     data.size = size
     light = bpy.data.objects.new(name, data)
@@ -153,7 +160,37 @@ def setup_world(job: dict) -> None:
     world.use_nodes = True
     bg = world.node_tree.nodes.get("Background")
     bg.inputs["Color"].default_value = _hex_to_rgba(job["background"])
-    bg.inputs["Strength"].default_value = 0.6
+    outdoor = job.get("preset") in ("architecture", "aerial")
+    bg.inputs["Strength"].default_value = 1.0 if outdoor else 0.6
+
+
+def add_sun(elevation_deg: float, azimuth_deg: float, energy: float) -> None:
+    data = bpy.data.lights.new("sun", type="SUN")
+    data.energy = energy
+    data.angle = math.radians(1.5)  # soft daylight shadows
+    sun = bpy.data.objects.new("sun", data)
+    bpy.context.collection.objects.link(sun)
+    sun.rotation_euler = (math.radians(90 - elevation_deg), 0.0, math.radians(azimuth_deg))
+
+
+def setup_lights(r: float, job: dict) -> None:
+    """Lighting of each look (see RENDER_PRESETS in blender_render.py)."""
+    preset = job.get("preset", "studio")
+    if preset in ("architecture", "aerial"):
+        add_sun(55 if preset == "architecture" else 65, 140, 4.0)
+        add_light("sky_fill", (-r * 4, -r * 3, r * 3), 150 * r * r, r * 4, (0.85, 0.9, 1.0))
+    elif preset == "portrait":
+        add_light("key", (r * 3, -r * 3, r * 2.5), 900 * r * r, r * 1.5, (1.0, 0.93, 0.85))
+        add_light("fill", (-r * 4, -r * 2, r * 1.5), 160 * r * r, r * 3)
+        add_light("rim", (-r * 1, r * 4, r * 3), 900 * r * r, r * 1.2, (0.75, 0.85, 1.0))
+    elif preset == "showroom":
+        add_light("top", (0, 0, r * 5), 1200 * r * r, r * 4)
+        add_light("key", (r * 4, -r * 3, r * 2), 600 * r * r, r * 3)
+        add_light("rim", (-r * 3, r * 4, r * 2), 700 * r * r, r * 2.5)
+    else:  # studio
+        add_light("key", (r * 3, -r * 3, r * 4), 800 * r * r, r * 2)
+        add_light("fill", (-r * 4, -r * 2, r * 2), 300 * r * r, r * 3)
+        add_light("rim", (0, r * 4, r * 3), 500 * r * r, r * 2)
 
 
 def setup_camera(radius: float, center_z: float, job: dict) -> bpy.types.Object:
@@ -162,7 +199,7 @@ def setup_camera(radius: float, center_z: float, job: dict) -> bpy.types.Object:
     rig.location = (0, 0, center_z)
 
     cam_data = bpy.data.cameras.new("reverse3d_camera")
-    cam_data.lens = 50
+    cam_data.lens = float(job.get("lens_mm", 50))
     cam = bpy.data.objects.new("reverse3d_camera", cam_data)
     bpy.context.collection.objects.link(cam)
     # camera.angle is the FOV of the longer image side; fit the sphere in the shorter one.
@@ -248,10 +285,7 @@ def main() -> None:
     shade(obj, job["shading"])
     make_material(obj, job)
     setup_world(job)
-    r = max(radius, 0.1)
-    add_light("key", (r * 3, -r * 3, r * 4), 800 * r * r, r * 2)
-    add_light("fill", (-r * 4, -r * 2, r * 2), 300 * r * r, r * 3)
-    add_light("rim", (0, r * 4, r * 3), 500 * r * r, r * 2)
+    setup_lights(max(radius, 0.1), job)
     rig = setup_camera(radius, center_z, job)
     setup_ground(job)
     setup_render(job)

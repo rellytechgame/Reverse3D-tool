@@ -19,7 +19,7 @@ import re
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from reverse3d.config import Settings
 from reverse3d.errors import DependencyMissingError, InputValidationError, ProcessingError
@@ -63,6 +63,9 @@ class RenderOptions:
     ground: bool = True
     shading: Literal["auto", "smooth", "flat"] = "auto"
     vertex_colors: bool = True
+    #: look of the shot: studio, showroom, portrait, architecture or aerial.
+    preset: str = "studio"
+    lens_mm: float = 50.0
 
     def validate(self) -> None:
         checks = [
@@ -82,10 +85,61 @@ class RenderOptions:
             (0 <= self.azimuth_deg <= 360, "azimuth_deg must be in [0, 360]"),
             (0 <= self.turntable_frames <= 360, "turntable_frames must be in [0, 360]"),
             (self.shading in ("auto", "smooth", "flat"), "shading must be auto, smooth or flat"),
+            (self.preset in RENDER_PRESETS, f"preset must be one of {', '.join(RENDER_PRESETS)}"),
+            (10 <= self.lens_mm <= 300, "lens_mm must be in [10, 300]"),
         ]
         for ok, message in checks:
             if not ok:
                 raise InputValidationError(message)
+
+
+#: Camera, lens and backdrop of each look (lights are set up in the Blender job).
+RENDER_PRESETS: dict[str, dict[str, Any]] = {
+    # Products and parts: seamless light backdrop, three soft boxes.
+    "studio": {
+        "lens_mm": 50.0,
+        "elevation_deg": 25.0,
+        "azimuth_deg": 35.0,
+        "background": "#f4f5f7",
+    },
+    # Vehicles: longer lens, low angle, glossy paint, showroom grey.
+    "showroom": {
+        "lens_mm": 70.0,
+        "elevation_deg": 12.0,
+        "azimuth_deg": 40.0,
+        "background": "#e6e9ee",
+        "roughness": 0.22,
+    },
+    # People and animals: portrait lens, eye level, dark backdrop, warm key + cool rim.
+    "portrait": {
+        "lens_mm": 85.0,
+        "elevation_deg": 6.0,
+        "azimuth_deg": 25.0,
+        "background": "#1d222b",
+    },
+    # Buildings and interiors: wide lens, sun and sky.
+    "architecture": {
+        "lens_mm": 28.0,
+        "elevation_deg": 20.0,
+        "azimuth_deg": 40.0,
+        "background": "#bcd4ea",
+    },
+    # Terrain and forests: high aerial view in daylight.
+    "aerial": {
+        "lens_mm": 35.0,
+        "elevation_deg": 55.0,
+        "azimuth_deg": 30.0,
+        "background": "#cfe0ee",
+    },
+}
+
+
+def preset_options(preset: str, base: RenderOptions | None = None) -> RenderOptions:
+    """Render options for a look, keeping size, samples and device from ``base``."""
+    from dataclasses import replace
+
+    name = preset if preset in RENDER_PRESETS else "studio"
+    return replace(base or RenderOptions(), preset=name, **RENDER_PRESETS[name])
 
 
 @dataclass

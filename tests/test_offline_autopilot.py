@@ -125,9 +125,11 @@ class TestModels:
 
     def test_every_allowlisted_model_is_pinned(self, tmp_path: Path) -> None:
         from reverse3d.reconstruction.depth_estimation import ALLOWED_MODELS
+        from reverse3d.vision.classifier import ALLOWED_CLASSIFIERS
         from reverse3d.vision.segmenter import ALLOWED_SEGMENTERS
 
-        assert set(ALLOWED_MODELS) | set(ALLOWED_SEGMENTERS) == set(offline.MODEL_REVISIONS)
+        allowed = set(ALLOWED_MODELS) | set(ALLOWED_SEGMENTERS) | set(ALLOWED_CLASSIFIERS)
+        assert allowed == set(offline.MODEL_REVISIONS)
         assert all(len(sha) == 40 for sha in offline.MODEL_REVISIONS.values())
         other = tmp_path / "_r3d_home" / "models" / ("models--" + SMALL.replace("/", "--"))
         (other / "snapshots" / "unreviewed").mkdir(parents=True)

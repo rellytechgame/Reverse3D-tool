@@ -30,6 +30,15 @@ def _no_network_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(offline, "_cache", None)
 
 
+@pytest.fixture(autouse=True)
+def _no_ai_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests never download or run the real AI models (classifier, segmenter)."""
+    from reverse3d.vision import classifier, segmenter
+
+    monkeypatch.setattr(classifier, "classifier_available", lambda: False)
+    monkeypatch.setattr(segmenter, "segmenter_available", lambda: False)
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(workspace=tmp_path.resolve(), subprocess_timeout_s=30)

@@ -361,7 +361,12 @@ def auto_run(
         if base.scene == "auto":
             predicted = detect_scene(source, settings)
             scene_info = predicted.to_dict()
-            base = replace(base, scene=predicted.kind)
+            base = replace(
+                base,
+                scene=predicted.kind,
+                subject=predicted.subject,
+                render_preset=predicted.render,
+            )
         elif base.scene in SCENE_PRESETS:
             scene_info = {"kind": base.scene, "confidence": 1.0, "reasons": ["chosen"]}
     summary: dict[str, Any] | None = None

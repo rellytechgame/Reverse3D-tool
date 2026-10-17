@@ -102,6 +102,12 @@ class SceneDetection:
     recommended: tuple[int, int]
     enough_photos: bool
     advice: list[str] = field(default_factory=list)
+    #: what the AI classifier saw (product, person, animal, vehicle, building...), if available.
+    subject: str | None = None
+    subject_label: str | None = None
+    subject_scores: dict[str, float] = field(default_factory=dict)
+    #: render look: studio, showroom, portrait, architecture or aerial.
+    render: str = "studio"
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -307,6 +313,26 @@ def score_scene(signals: SceneSignals) -> tuple[dict[str, float], list[str]]:
     return {k: round(max(v, 0.0), 3) for k, v in scores.items()}, reasons
 
 
+def _ai_subject(images: list[Path], settings: Settings) -> tuple[str | None, dict[str, float]]:
+    """The AI classifier's subject for a sample of the photos (None if unavailable)."""
+    from reverse3d.errors import Reverse3DError
+    from reverse3d.vision.classifier import classify_photos
+
+    step = max(1, len(images) // _SAMPLE)
+    try:
+        scores = classify_photos(images[::step][:_SAMPLE], settings)
+    except Reverse3DError as exc:
+        logger.info("AI subject classifier unavailable: %s", exc.message)
+        return None, {}
+    return max(scores, key=scores.__getitem__), scores
+
+
+def _subject_label(subject: str | None) -> str | None:
+    from reverse3d.vision.classifier import SUBJECT_LABEL_ES
+
+    return SUBJECT_LABEL_ES.get(subject) if subject else None
+
+
 def detect_scene(image_dir: str | Path, settings: Settings) -> SceneDetection:
     """Predict the scene kind of a photo folder (takes a few seconds)."""
     directory = validate_input_dir(image_dir)
@@ -319,6 +345,20 @@ def detect_scene(image_dir: str | Path, settings: Settings) -> SceneDetection:
     ranked = sorted(scores.values(), reverse=True)
     margin = ranked[0] - (ranked[1] if len(ranked) > 1 else 0.0)
     confidence = round(min(0.97, 0.5 + margin * 1.5), 2)
+    subject, subject_scores = _ai_subject(images, settings)
+    render = (
+        "aerial" if kind == "landscape" else "architecture" if kind == "architecture" else "studio"
+    )
+    if subject is not None:
+        from reverse3d.vision.classifier import SUBJECT_RENDER, SUBJECT_SCENE
+
+        flight = signals.drone and signals.nadir_share > 0.3
+        if flight:  # a drone looking down is terrain whatever the AI thinks it sees
+            subject = "terrain" if subject not in ("forest", "terrain") else subject
+        kind = SUBJECT_SCENE[subject]  # type: ignore[assignment]
+        render = SUBJECT_RENDER[subject]
+        confidence = round(min(0.98, max(subject_scores.get(subject, 0.0), 0.5)), 2)
+        reasons.insert(0, f"ai_{subject}")
     preset = SCENE_PRESETS[kind]
     enough = signals.photos >= preset.min_photos
     if not enough:
@@ -337,6 +377,10 @@ def detect_scene(image_dir: str | Path, settings: Settings) -> SceneDetection:
         recommended=preset.recommended,
         enough_photos=enough,
         advice=advice,
+        subject=subject,
+        subject_label=_subject_label(subject),
+        subject_scores={k: round(v, 3) for k, v in subject_scores.items()},
+        render=render,
     )
 
 

@@ -2,6 +2,16 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.8.0] — 2026-10-16
+
+### Equipo de IA local: reconoce, recorta, colorea y renderiza según el sujeto
+- **Clasificador de sujeto** (`reverse3d.vision.classifier`, TinyCLIP de Microsoft, MIT, unos 340 MB): mira una muestra de las fotos y reconoce qué se fotografió entre objeto o producto, pieza mecánica, figura, vehículo, persona, animal, edificio, interior, bosque o terreno. El sujeto decide el perfil de reconstrucción y el estilo de render. `scene detect` devuelve `subject`, `subject_label`, `subject_scores` y `render`. Un vuelo de dron mirando hacia abajo siempre es terreno.
+- **Color real en el modelo:** cada vértice toma el color de las fotos que lo ven de frente (con z-buffer y solo píxeles que la IA marcó como objeto). Nuevas salidas: `model.glb` (con color, para juegos, web y visores) y `model_color.ply`.
+- **Render según el sujeto** (`RenderOptions.preset`, `RENDER_PRESETS`): estudio (productos y piezas), exhibición (vehículos: lente de 70 mm, ángulo bajo, pintura brillante), retrato (personas y animales: 85 mm, luz cálida y contraluz frío), arquitectura (sol y cielo, 28 mm) y aéreo (terrenos y bosques). El render usa el modelo con color.
+- **Tallado más limpio:** una apertura morfológica elimina picos y columnas finas antes de crear la malla.
+- **Las tres IAs funcionan sin internet:** `reverse3d offline prepare` (y el instalador) descarga el clasificador, la segmentación y la profundidad; `offline status` informa de cada una (`ai_subject`, `ai_segmentation`, `ai_depth`). Todas están en la lista permitida, fijadas por commit y en `safetensors`.
+- Las pruebas nunca descargan ni ejecutan las IAs reales.
+
 ## [0.7.0] — 2026-10-16
 
 ### IA de recorte: tapas, asas y partes oscuras
