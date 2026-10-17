@@ -298,9 +298,10 @@ def _support_plane(
     return None
 
 
-# The base is rebuilt from the cross-section this high up (share of the object's
-# height), where cut-outs no longer confuse it with the table, down to the table.
-_BASE_REFERENCE = (0.10, 0.13)
+# Base completion: the typical cross-section is measured in this band of the
+# object's height, and a complete one is searched for no higher than this.
+_BASE_TYPICAL = (0.2, 0.6)
+_BASE_MAX_SEARCH = 0.4
 
 
 def _complete_base(
@@ -321,8 +322,25 @@ def _complete_base(
     top = float(h[occ].max())
     if top <= 0:
         return volume
-    lo, hi = (_BASE_REFERENCE[0] * top, _BASE_REFERENCE[1] * top)
-    ref = occ & (h >= lo) & (h < hi)
+    # Reference: the lowest cross-section that is already complete (area close to
+    # the typical one of the object's middle), searched upwards from the table.
+    hs = h[occ]
+    edges = np.arange(0.0, top + voxel, voxel)
+    area, _ = np.histogram(hs, edges)
+    mid = (edges[:-1] >= _BASE_TYPICAL[0] * top) & (edges[:-1] < _BASE_TYPICAL[1] * top)
+    if not mid.any():
+        return volume
+    typical = float(np.median(area[mid]))
+    lo = None
+    for k in range(len(area) - 2):
+        if edges[k] > _BASE_MAX_SEARCH * top:
+            break
+        if min(area[k], area[k + 1], area[k + 2]) >= 0.9 * typical:
+            lo = float(edges[k])
+            break
+    if lo is None or lo <= voxel:
+        return volume  # already whole down to the table, or no clean reference
+    ref = occ & (h >= lo) & (h < lo + 3 * voxel)
     if ref.sum() < 20:
         return volume
     helper = np.array([1.0, 0.0, 0.0]) if abs(normal[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
