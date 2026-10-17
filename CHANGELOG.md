@@ -2,6 +2,18 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.11.2] — 2026-10-17
+
+### Más rápido
+- **El recorte inicial (GrabCut) va en paralelo en todos los núcleos y a media resolución** en las pasadas que solo buscan el contorno grueso; era el paso más lento (1,3 s por foto en cada pasada). La refinación sin IA también va en paralelo.
+- **4 veces menos memoria** en el tallado: las proyecciones de millones de vóxeles en cada foto se guardan en enteros de 16 bits y la copia anterior se libera antes de recalcular (con 133 fotos se agotaba la RAM).
+- **Con Reverse3D Core 0.2**, la fusión de siluetas es jerárquica (primero una rejilla 2× más gruesa): entre 2,2 y 2,8 veces más rápida con el mismo resultado. Compatible con el Core 0.1.
+
+### Base plana y modelo derecho
+- **La mesa se encuentra aunque tenga pocos puntos** (oscura, con listones): conociendo el "arriba" de las cámaras, se busca la capa horizontal más densa justo bajo el objeto y se ajusta por mínimos cuadrados. Antes, con un objeto alto o una mesa de listones, no se encontraba y la base quedaba inclinada.
+- **Base completa hasta la mesa:** la franja inferior es donde más fallan los recortes (base blanca sobre mesa clara, reflejos, sombra) y quedaba mordida o inclinada. Si el objeto está apoyado, la sección completa un poco más arriba se prolonga hasta la mesa (solo añade bajo lo que existe: las patas siguen siendo patas). En el termo de prueba la base pasó de empezar entre el 0 % y el 10 % de la altura según el lado a ser plana.
+- Solo compiten como mesa los planos horizontales, por debajo del objeto y que este toque (no la tapa, una pared, un estante ni un asiento detrás).
+
 ## [0.11.1] — 2026-10-17
 
 ### Corregido: objetos convertidos en una "franja"

@@ -364,3 +364,60 @@ def test_a_wall_through_the_object_is_not_taken_for_the_table() -> None:
     normal, offset = plane
     assert abs(normal[2]) > 0.99  # the table, not the wall
     assert np.mean(obj @ normal + offset < 0) < 0.05
+
+
+def test_a_sparse_slatted_table_under_a_tall_object_is_found() -> None:
+    from reverse3d.reconstruction.silhouette import _support_plane
+
+    rng = np.random.default_rng(1)
+    # Few points on an uneven, slatted table top (z ~ 0 +- 0.03), far below the centre.
+    slats = rng.uniform(-1.5, 1.5, (60, 2))
+    table = np.column_stack([slats, rng.normal(0.0, 0.015, 60)])
+    # Many points on a wall and on the top of the object (its cap).
+    wall = np.column_stack([np.full(600, 1.2), rng.uniform(-2, 2, 600), rng.uniform(0, 4, 600)])
+    cap = np.column_stack([rng.uniform(-0.2, 0.2, (300, 2)), np.full(300, 3.4)])
+    obj = np.column_stack([rng.uniform(-0.4, 0.4, (4000, 2)), rng.uniform(0.0, 3.4, 4000)])
+    cameras = np.array([[4.0, 0.0, 2.0], [-4.0, 0.5, 3.5], [0.0, 4.0, 1.0], [0.5, -4.0, 4.5]])
+    center = np.array([0.0, 0.0, 2.6])  # pulled up by close-ups of the cap
+    up = np.array([0.0, 0.0, 1.0])
+    plane = _support_plane(np.vstack([table, wall, cap]), center, 1.0, cameras, obj, up)
+    assert plane is not None
+    normal, offset = plane
+    assert normal[2] > 0.99
+    assert abs(offset) < 0.05  # the table top at z = 0
+
+
+def _voxels(n: int = 60) -> tuple[np.ndarray, float]:
+    axis = np.linspace(-1.5, 1.5, n)
+    gx, gy, gz = np.meshgrid(axis, axis, axis + 1.4, indexing="ij")
+    return np.stack([gx.ravel(), gy.ravel(), gz.ravel()], axis=1), float(axis[1] - axis[0])
+
+
+def test_a_bitten_base_is_completed_down_to_the_table() -> None:
+    from reverse3d.reconstruction.silhouette import _complete_base
+
+    grid, voxel = _voxels()
+    r = np.hypot(grid[:, 0], grid[:, 1])
+    bottle = (r < 0.5) & (grid[:, 2] >= 0) & (grid[:, 2] < 2.5)
+    bitten = bottle & ~((grid[:, 0] > 0) & (grid[:, 2] < 0.25))  # half the base missing
+    volume = bitten.astype(np.float32).reshape(60, 60, 60)
+    out = _complete_base(volume, grid, np.array([0.0, 0.0, 1.0]), 0.0, voxel).reshape(-1) > 0.5
+    base = bottle & (grid[:, 2] < 0.25)
+    assert out[base].mean() > 0.95  # the base is whole again
+    assert not (out & ~bottle).any()  # nothing added outside the object
+
+
+def test_legs_stay_legs_when_the_base_is_completed() -> None:
+    from reverse3d.reconstruction.silhouette import _complete_base
+
+    grid, voxel = _voxels()
+    x, y, z = grid.T
+    legs = (
+        ((np.abs(np.abs(x) - 0.8) < 0.12) & (np.abs(np.abs(y) - 0.8) < 0.12)) & (z >= 0) & (z < 1.0)
+    )
+    top = (np.abs(x) < 1.0) & (np.abs(y) < 1.0) & (z >= 1.0) & (z < 1.2)
+    table = legs | top
+    volume = table.astype(np.float32).reshape(60, 60, 60)
+    out = _complete_base(volume, grid, np.array([0.0, 0.0, 1.0]), 0.0, voxel).reshape(-1) > 0.5
+    between = (np.abs(x) < 0.4) & (np.abs(y) < 0.4) & (z < 0.5)
+    assert not out[between].any()

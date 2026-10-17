@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
 from dataclasses import asdict, dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -184,14 +186,20 @@ def _grabcut(
     return np.where((init == cv2.GC_FGD) | (init == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
 
 
+# Largest pixel coordinate kept in the int16 projections (outside any work image).
+_PIXEL_MAX = 32000
+
 # reverse3d-core weight below which a photo is reported as inconsistent.
 _UNRELIABLE_WEIGHT = 0.3
 
 # A support plane must face the photographer's "up" (phones are held upright).
 _MAX_TABLE_TILT_DEG = 30.0
+_MIN_TABLE_COS = float(np.cos(np.radians(_MAX_TABLE_TILT_DEG)))
+# Sparse points a table needs (a dark slatted table yields few).
+_MIN_TABLE_POINTS = 12
 # The carved hull has an unseen keel under the object, so a real table may cut a
 # fair part of it; a plane cutting more than this is not under the object.
-_MAX_PLANE_CUT = 0.45
+_MAX_PLANE_CUT = 0.3
 
 
 def _support_plane(
@@ -209,13 +217,27 @@ def _support_plane(
     cameras' mean "up", the object stands on top of it and close to it, and it
     does not cut through the carved object. Otherwise no plane is used at all.
     """
-    near = points[np.linalg.norm(points - center, axis=1) < 1.2 * radius]
+    if occupied is not None and len(occupied):
+        # Around the carved object itself (a tall object's table is far from its centre).
+        lo = occupied.min(axis=0) - 0.5 * radius
+        hi = occupied.max(axis=0) + 0.5 * radius
+        near = points[np.all((points >= lo) & (points <= hi), axis=1)]
+    else:
+        near = points[np.linalg.norm(points - center, axis=1) < 1.2 * radius]
+    if up is not None and occupied is not None and len(occupied) and len(near) >= 30:
+        layer = _table_layer(near, occupied, up, radius)
+        if layer is not None:
+            n, d = layer
+            if np.median(cameras @ n + d) >= 0 and float(center @ n + d) > 0:
+                cut = float(np.mean(occupied @ n + d < 0.015 * radius))
+                if cut <= _MAX_PLANE_CUT:
+                    return n, d
     rng = np.random.default_rng(0)
     for _ in range(5):
         if len(near) < 30:
             return None
         best: tuple[np.ndarray, float, int] | None = None
-        for _ in range(400):
+        for _ in range(1500):
             s = near[rng.choice(len(near), 3, replace=False)]
             n = np.cross(s[1] - s[0], s[2] - s[0])
             norm = np.linalg.norm(n)
@@ -223,10 +245,30 @@ def _support_plane(
                 continue
             n /= norm
             d = -float(n @ s[0])
+            # Only roughly horizontal planes compete: walls and doors have far more
+            # points than a dark table and would always win.
+            if up is not None and abs(float(n @ up)) < _MIN_TABLE_COS:
+                continue
+            # ... and only below the object, close to it (not the top of a cap,
+            # a shelf or a chair seat behind it).
+            if np.median(cameras @ n + d) < 0:
+                n, d = -n, -d
+            if float(center @ n + d) < 0.0:
+                continue
+            if occupied is not None and len(occupied):
+                # The object must reach down to it (not a floor far below the table)
+                # and stand on it (not a shelf or a seat at mid height).
+                above = occupied @ n + d
+                if float(np.min(above)) > 0.05 * radius:
+                    continue
+                if float(np.mean(above < 0.015 * radius)) > _MAX_PLANE_CUT:
+                    continue
+            elif float(center @ n + d) > radius:
+                continue
             count = int((np.abs(near @ n + d) < 0.01 * radius).sum())
             if best is None or count > best[2]:
                 best = (n, d, count)
-        if best is None or best[2] < 20:
+        if best is None or best[2] < _MIN_TABLE_POINTS:
             return None
         n, d, _ = best
         if np.median(cameras @ n + d) < 0:  # cameras are above the table
@@ -242,7 +284,7 @@ def _support_plane(
             "object below it"
             if height < 0
             else "too far below the object"
-            if height > radius
+            if (occupied is None or not len(occupied)) and height > radius
             else f"tilted {tilt:.0f} deg from the cameras' up"
             if tilt > _MAX_TABLE_TILT_DEG
             else f"it would cut {cut:.0%} of the object"
@@ -254,6 +296,103 @@ def _support_plane(
         logger.info("Plane rejected as support (%s)", reason)
         near = near[np.abs(near @ n + d) >= 0.01 * radius]
     return None
+
+
+# The base is rebuilt from the cross-section this high up (share of the object's
+# height), where cut-outs no longer confuse it with the table, down to the table.
+_BASE_REFERENCE = (0.10, 0.13)
+
+
+def _complete_base(
+    volume: np.ndarray, grid: np.ndarray, normal: np.ndarray, offset: float, voxel: float
+) -> np.ndarray:
+    """Extend an object standing on a table down to it.
+
+    The lowest band of an object is where cut-outs fail most (a white base on a
+    light table, its reflection, a shadow), leaving a slanted or bitten base. A
+    standing object reaches the table, so the cross-section just above that band
+    is extruded down to the table. Only voxels under that cross-section are added
+    (legs stay legs), and nothing is removed.
+    """
+    occ = volume.reshape(-1) > 0.5
+    if not occ.any():
+        return volume
+    h = grid @ normal + offset
+    top = float(h[occ].max())
+    if top <= 0:
+        return volume
+    lo, hi = (_BASE_REFERENCE[0] * top, _BASE_REFERENCE[1] * top)
+    ref = occ & (h >= lo) & (h < hi)
+    if ref.sum() < 20:
+        return volume
+    helper = np.array([1.0, 0.0, 0.0]) if abs(normal[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    e1 = np.cross(normal, helper)
+    e1 /= np.linalg.norm(e1)
+    e2 = np.cross(normal, e1)
+    xy = np.stack([grid @ e1, grid @ e2], axis=1)
+    origin = xy.min(axis=0)
+    ij = np.floor((xy - origin) / voxel).astype(np.int64)
+    footprint = np.zeros(ij.max(axis=0) + 1, bool)
+    footprint[ij[ref, 0], ij[ref, 1]] = True
+    from scipy import ndimage
+
+    footprint = ndimage.binary_closing(footprint, iterations=1)
+    below = (h >= 0) & (h < lo) & footprint[ij[:, 0], ij[:, 1]]
+    added = int((below & ~occ).sum())
+    if added:
+        logger.info("Base completed down to the table (%d voxels)", added)
+    out = volume.reshape(-1).copy()
+    out[below] = 1.0
+    return out.reshape(volume.shape)
+
+
+def _coarse_grabcut(image: np.ndarray, rect: tuple[int, int, int, int]) -> np.ndarray:
+    """GrabCut at half resolution (4x fewer pixels): enough for a first silhouette."""
+    h, w = image.shape[:2]
+    half = cv2.resize(image, (w // 2, h // 2), interpolation=cv2.INTER_AREA)
+    x, y, rw, rh = rect
+    fg = _grabcut(
+        half, np.zeros(half.shape[:2], np.uint8), (x // 2, y // 2, max(2, rw // 2), max(2, rh // 2))
+    )
+    return cv2.resize(fg, (w, h), interpolation=cv2.INTER_NEAREST)
+
+
+def _parallel(jobs: list[Callable[[], np.ndarray]]) -> list[np.ndarray]:
+    """Run per-photo OpenCV jobs on every core (OpenCV releases the GIL)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    workers = max(1, min(len(jobs), (os.cpu_count() or 2)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(lambda job: job(), jobs))
+
+
+def _table_layer(
+    near: np.ndarray, occupied: np.ndarray, up: np.ndarray, radius: float
+) -> tuple[np.ndarray, float] | None:
+    """The densest horizontal layer of sparse points just under the object.
+
+    Knowing "up" turns the table search into 1-D: a histogram of point heights
+    around the object's lowest point. The layer is fitted by least squares, which
+    tolerates a slatted or slightly uneven top that thin RANSAC bands miss.
+    """
+    heights = near @ up
+    base = float(np.min(occupied @ up))
+    step = 0.02 * radius
+    edges = np.arange(base - 0.5 * radius, base + 0.3 * radius + step, step)
+    counts, _ = np.histogram(heights, edges)
+    if counts.max(initial=0) < _MIN_TABLE_POINTS:
+        return None
+    peak = int(np.argmax(counts))
+    level = (edges[peak] + edges[peak + 1]) / 2
+    layer = near[np.abs(heights - level) < 2 * step]
+    if len(layer) < _MIN_TABLE_POINTS:
+        return None
+    centre = layer.mean(axis=0)
+    _, _, vt = np.linalg.svd(layer - centre, full_matrices=False)
+    n = vt[2] if vt[2] @ up > 0 else -vt[2]
+    if float(n @ up) < _MIN_TABLE_COS:
+        return None
+    return n, -float(n @ centre)
 
 
 def _box_around(
@@ -529,25 +668,31 @@ def visual_hull(
     ) -> tuple[list[np.ndarray], np.ndarray, list[tuple[np.ndarray, np.ndarray, np.ndarray]]]:
         """First silhouettes (GrabCut in a box around where the object projects),
         the voxel grid of the cube center +/- radius and its projection in every photo."""
-        masks: list[np.ndarray] = []
+        rects: list[tuple[int, int, int, int] | None] = []
         for i, ((small, scale), view) in enumerate(zip(images, views, strict=True)):
             if boxes is not None and boxes[i] is not None:
-                fg = _grabcut(small, np.zeros(small.shape[:2], np.uint8), boxes[i])
-                masks.append(cv2.morphologyEx(fg, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8)))
+                rects.append(boxes[i])
                 continue
             uv, z = _project(center[None], view)
             if z[0] <= 0:
-                masks.append(np.zeros(small.shape[:2], np.uint8))
+                rects.append(None)
                 continue
             cu, cv_ = uv[0] * scale
             half = view.camera.fx * scale * 0.6 * radius / z[0]
             x0, y0 = max(0, int(cu - half)), max(0, int(cv_ - 1.6 * half))
             x1 = min(small.shape[1] - 1, int(cu + half))
             y1 = min(small.shape[0] - 1, int(cv_ + 1.6 * half))
-            init = np.zeros(small.shape[:2], np.uint8)
-            rect = (x0, y0, max(2, x1 - x0), max(2, y1 - y0))
-            fg = _grabcut(small, init, rect)
-            masks.append(cv2.morphologyEx(fg, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8)))
+            rects.append((x0, y0, max(2, x1 - x0), max(2, y1 - y0)))
+
+        def cut(small: np.ndarray, rect: tuple[int, int, int, int] | None) -> np.ndarray:
+            if rect is None:
+                return np.zeros(small.shape[:2], np.uint8)
+            fg = _coarse_grabcut(small, rect)
+            return cv2.morphologyEx(fg, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+
+        masks = _parallel(
+            [partial(cut, small, rect) for (small, _), rect in zip(images, rects, strict=True)]
+        )
 
         axis = np.linspace(-radius, radius, n)
         gx, gy, gz = np.meshgrid(axis, axis, axis, indexing="ij")
@@ -555,8 +700,10 @@ def visual_hull(
         projections = []
         for (small, scale), view in zip(images, views, strict=True):
             uv, z = _project(grid, view)
-            u = np.round(uv[:, 0] * scale).astype(np.int64)
-            v = np.round(uv[:, 1] * scale).astype(np.int64)
+            # int16 pixel coordinates (work images are at most 640 px): 4x less memory
+            # than int64 for millions of voxels times hundreds of photos.
+            u = np.clip(np.round(uv[:, 0] * scale), -1, _PIXEL_MAX).astype(np.int16)
+            v = np.clip(np.round(uv[:, 1] * scale), -1, _PIXEL_MAX).astype(np.int16)
             inside = (z > 0) & (u >= 0) & (v >= 0) & (u < small.shape[1]) & (v < small.shape[0])
             projections.append((u, v, inside))
 
@@ -592,7 +739,12 @@ def visual_hull(
         if core is not None and core_cameras is not None:
             try:
                 binary = [np.where(m > 0, 255, 0).astype(np.uint8) for m in mask_list]
-                prob, core_weights = core.fuse_cameras(core_cameras, binary, grid)
+                try:  # reverse3d-core >= 0.2: coarse-to-fine on the grid
+                    prob, core_weights = core.fuse_cameras(
+                        core_cameras, binary, grid, grid_shape=(n, n, n)
+                    )
+                except TypeError:
+                    prob, core_weights = core.fuse_cameras(core_cameras, binary, grid)
                 return np.asarray(prob) > 0.5
             except Exception as exc:  # never fail a job because of the optional engine
                 logger.warning("reverse3d-core failed (%s); using the open method", exc)
@@ -629,6 +781,7 @@ def visual_hull(
         center = (occupied.min(axis=0) + occupied.max(axis=0)) / 2
         radius *= 1.5
         logger.info("Object reaches the carving volume's edge: re-centred and enlarged")
+        projections.clear()  # free the previous projections first (gigabytes)
         masks, grid, projections = frame(center, radius)
         keep = carve(masks, 2)
     # The first boxes come from the cameras' convergence point and can crop the object
@@ -640,6 +793,7 @@ def visual_hull(
             _box_around(keep & inside, u, v, small.shape)
             for (u, v, inside), (small, _) in zip(projections, images, strict=True)
         ]
+        projections.clear()  # free the previous projections first (gigabytes)
         masks, grid, projections = frame(center, radius, boxes)
         keep = carve(masks, 2)
         if int(keep.sum()) < 1.05 * before:
@@ -675,23 +829,30 @@ def visual_hull(
             masks = ai_masks
             keep = carve(masks, 1)
         refinements = 0
+
+    def refine(
+        small: np.ndarray, u: np.ndarray, v: np.ndarray, inside: np.ndarray, old: np.ndarray
+    ) -> np.ndarray:
+        hull: np.ndarray = np.zeros(small.shape[:2], np.uint8)
+        sel = keep & inside
+        hull[v[sel], u[sel]] = 255
+        hull = cv2.morphologyEx(hull, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
+        if not hull.any():
+            return old
+        init = np.full(small.shape[:2], cv2.GC_BGD, np.uint8)
+        init[cv2.dilate(hull, np.ones((25, 25), np.uint8)) > 0] = cv2.GC_PR_BGD
+        init[hull > 0] = cv2.GC_PR_FGD
+        init[cv2.erode(hull, np.ones((21, 21), np.uint8)) > 0] = cv2.GC_FGD
+        fg = _grabcut(small, init, None)
+        return cv2.morphologyEx(fg, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+
     for _ in range(refinements):
-        refined: list[np.ndarray] = []
-        for (small, _), (u, v, inside), old in zip(images, projections, masks, strict=True):
-            hull: np.ndarray = np.zeros(small.shape[:2], np.uint8)
-            sel = keep & inside
-            hull[v[sel], u[sel]] = 255
-            hull = cv2.morphologyEx(hull, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
-            if not hull.any():
-                refined.append(old)
-                continue
-            init = np.full(small.shape[:2], cv2.GC_BGD, np.uint8)
-            init[cv2.dilate(hull, np.ones((25, 25), np.uint8)) > 0] = cv2.GC_PR_BGD
-            init[hull > 0] = cv2.GC_PR_FGD
-            init[cv2.erode(hull, np.ones((21, 21), np.uint8)) > 0] = cv2.GC_FGD
-            fg = _grabcut(small, init, None)
-            refined.append(cv2.morphologyEx(fg, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8)))
-        masks = refined
+        masks = _parallel(
+            [
+                partial(refine, small, u, v, inside, old)
+                for (small, _), (u, v, inside), old in zip(images, projections, masks, strict=True)
+            ]
+        )
         keep = carve(masks, 1)
 
     # Concavities and through-holes (a handle loop, the inside of a cup) never
@@ -727,6 +888,7 @@ def visual_hull(
         normal, offset = plane
         height = (grid @ normal + offset).reshape(n, n, n)
         volume[height < 0.015 * radius] = 0
+        volume = _complete_base(volume, grid, normal, offset, 2 * radius / (n - 1))
     # Drop structures thinner than a couple of voxels (stray spikes from a few views).
     volume = ndimage.binary_opening(volume > 0.5, iterations=2).astype(np.float32)
     labels, count = ndimage.label(volume > 0.5)
