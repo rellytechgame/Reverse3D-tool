@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import importlib
 import logging
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -88,6 +88,8 @@ class HullResult:
     to_world: list[list[float]] | None = None
     #: engine that fused the silhouettes: "reverse3d" (open) or "reverse3d-core X.Y"
     engine: str = "reverse3d"
+    #: photos reverse3d-core judged inconsistent with the rest (moved object, bad cut-out)
+    unreliable: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -182,32 +184,91 @@ def _grabcut(
     return np.where((init == cv2.GC_FGD) | (init == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
 
 
+# reverse3d-core weight below which a photo is reported as inconsistent.
+_UNRELIABLE_WEIGHT = 0.3
+
+# A support plane must face the photographer's "up" (phones are held upright).
+_MAX_TABLE_TILT_DEG = 30.0
+# The carved hull has an unseen keel under the object, so a real table may cut a
+# fair part of it; a plane cutting more than this is not under the object.
+_MAX_PLANE_CUT = 0.45
+
+
 def _support_plane(
-    points: np.ndarray, center: np.ndarray, radius: float, cameras: np.ndarray
+    points: np.ndarray,
+    center: np.ndarray,
+    radius: float,
+    cameras: np.ndarray,
+    occupied: np.ndarray | None = None,
+    up: np.ndarray | None = None,
 ) -> tuple[np.ndarray, float] | None:
-    """The table under the object: RANSAC plane through nearby sparse points, normal up."""
+    """The table under the object: RANSAC plane through nearby sparse points, normal up.
+
+    A room offers many planes (floor, walls, a door, chair seats). Candidates are
+    tried from the best supported down; one is the support only if it faces the
+    cameras' mean "up", the object stands on top of it and close to it, and it
+    does not cut through the carved object. Otherwise no plane is used at all.
+    """
     near = points[np.linalg.norm(points - center, axis=1) < 1.2 * radius]
-    if len(near) < 30:
-        return None
     rng = np.random.default_rng(0)
-    best: tuple[np.ndarray, float, int] | None = None
-    for _ in range(400):
-        s = near[rng.choice(len(near), 3, replace=False)]
-        n = np.cross(s[1] - s[0], s[2] - s[0])
-        norm = np.linalg.norm(n)
-        if norm < 1e-12:
-            continue
-        n /= norm
-        d = -float(n @ s[0])
-        count = int((np.abs(near @ n + d) < 0.01 * radius).sum())
-        if best is None or count > best[2]:
-            best = (n, d, count)
-    if best is None or best[2] < 20:
+    for _ in range(5):
+        if len(near) < 30:
+            return None
+        best: tuple[np.ndarray, float, int] | None = None
+        for _ in range(400):
+            s = near[rng.choice(len(near), 3, replace=False)]
+            n = np.cross(s[1] - s[0], s[2] - s[0])
+            norm = np.linalg.norm(n)
+            if norm < 1e-12:
+                continue
+            n /= norm
+            d = -float(n @ s[0])
+            count = int((np.abs(near @ n + d) < 0.01 * radius).sum())
+            if best is None or count > best[2]:
+                best = (n, d, count)
+        if best is None or best[2] < 20:
+            return None
+        n, d, _ = best
+        if np.median(cameras @ n + d) < 0:  # cameras are above the table
+            n, d = -n, -d
+        height = float(center @ n + d)
+        tilt = float(np.degrees(np.arccos(np.clip(n @ up, -1.0, 1.0)))) if up is not None else 0.0
+        cut = (
+            float(np.mean(occupied @ n + d < 0.015 * radius))
+            if occupied is not None and len(occupied)
+            else 0.0
+        )
+        reason = (
+            "object below it"
+            if height < 0
+            else "too far below the object"
+            if height > radius
+            else f"tilted {tilt:.0f} deg from the cameras' up"
+            if tilt > _MAX_TABLE_TILT_DEG
+            else f"it would cut {cut:.0%} of the object"
+            if cut > _MAX_PLANE_CUT
+            else None
+        )
+        if reason is None:
+            return n, d
+        logger.info("Plane rejected as support (%s)", reason)
+        near = near[np.abs(near @ n + d) >= 0.01 * radius]
+    return None
+
+
+def _box_around(
+    sel: np.ndarray, u: np.ndarray, v: np.ndarray, shape: tuple[int, ...]
+) -> tuple[int, int, int, int] | None:
+    """GrabCut box around the projected voxels ``sel``, with a generous margin."""
+    if sel.sum() < 50:
         return None
-    n, d, _ = best
-    if np.median(cameras @ n + d) < 0:  # cameras are above the table
-        n, d = -n, -d
-    return n, d
+    us, vs = u[sel], v[sel]
+    w, h = int(us.max() - us.min() + 1), int(vs.max() - vs.min() + 1)
+    x0 = max(0, int(us.min() - 0.2 * w))
+    y0 = max(0, int(vs.min() - 0.3 * h))
+    x1 = min(shape[1] - 1, int(us.max() + 0.2 * w))
+    y1 = min(shape[0] - 1, int(vs.max() + 0.3 * h))
+    return x0, y0, max(2, x1 - x0), max(2, y1 - y0)
 
 
 def _vertex_colors(
@@ -459,34 +520,49 @@ def visual_hull(
             )
         )
 
-    # First silhouettes: GrabCut in a box around where the object projects.
-    masks: list[np.ndarray] = []
-    for (small, scale), view in zip(images, views, strict=True):
-        uv, z = _project(center[None], view)
-        if z[0] <= 0:
-            masks.append(np.zeros(small.shape[:2], np.uint8))
-            continue
-        cu, cv_ = uv[0] * scale
-        half = view.camera.fx * scale * 0.6 * radius / z[0]
-        x0, y0 = max(0, int(cu - half)), max(0, int(cv_ - 1.6 * half))
-        x1 = min(small.shape[1] - 1, int(cu + half))
-        y1 = min(small.shape[0] - 1, int(cv_ + 1.6 * half))
-        init = np.zeros(small.shape[:2], np.uint8)
-        rect = (x0, y0, max(2, x1 - x0), max(2, y1 - y0))
-        fg = _grabcut(small, init, rect)
-        masks.append(cv2.morphologyEx(fg, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8)))
-
     n = resolution
-    axis = np.linspace(-radius, radius, n)
-    gx, gy, gz = np.meshgrid(axis, axis, axis, indexing="ij")
-    grid = np.stack([gx.ravel(), gy.ravel(), gz.ravel()], axis=1) + center
-    projections = []
-    for (small, scale), view in zip(images, views, strict=True):
-        uv, z = _project(grid, view)
-        u = np.round(uv[:, 0] * scale).astype(np.int64)
-        v = np.round(uv[:, 1] * scale).astype(np.int64)
-        inside = (z > 0) & (u >= 0) & (v >= 0) & (u < small.shape[1]) & (v < small.shape[0])
-        projections.append((u, v, inside))
+
+    def frame(
+        center: np.ndarray,
+        radius: float,
+        boxes: list[tuple[int, int, int, int] | None] | None = None,
+    ) -> tuple[list[np.ndarray], np.ndarray, list[tuple[np.ndarray, np.ndarray, np.ndarray]]]:
+        """First silhouettes (GrabCut in a box around where the object projects),
+        the voxel grid of the cube center +/- radius and its projection in every photo."""
+        masks: list[np.ndarray] = []
+        for i, ((small, scale), view) in enumerate(zip(images, views, strict=True)):
+            if boxes is not None and boxes[i] is not None:
+                fg = _grabcut(small, np.zeros(small.shape[:2], np.uint8), boxes[i])
+                masks.append(cv2.morphologyEx(fg, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8)))
+                continue
+            uv, z = _project(center[None], view)
+            if z[0] <= 0:
+                masks.append(np.zeros(small.shape[:2], np.uint8))
+                continue
+            cu, cv_ = uv[0] * scale
+            half = view.camera.fx * scale * 0.6 * radius / z[0]
+            x0, y0 = max(0, int(cu - half)), max(0, int(cv_ - 1.6 * half))
+            x1 = min(small.shape[1] - 1, int(cu + half))
+            y1 = min(small.shape[0] - 1, int(cv_ + 1.6 * half))
+            init = np.zeros(small.shape[:2], np.uint8)
+            rect = (x0, y0, max(2, x1 - x0), max(2, y1 - y0))
+            fg = _grabcut(small, init, rect)
+            masks.append(cv2.morphologyEx(fg, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8)))
+
+        axis = np.linspace(-radius, radius, n)
+        gx, gy, gz = np.meshgrid(axis, axis, axis, indexing="ij")
+        grid = np.stack([gx.ravel(), gy.ravel(), gz.ravel()], axis=1) + center
+        projections = []
+        for (small, scale), view in zip(images, views, strict=True):
+            uv, z = _project(grid, view)
+            u = np.round(uv[:, 0] * scale).astype(np.int64)
+            v = np.round(uv[:, 1] * scale).astype(np.int64)
+            inside = (z > 0) & (u >= 0) & (v >= 0) & (u < small.shape[1]) & (v < small.shape[0])
+            projections.append((u, v, inside))
+
+        return masks, grid, projections
+
+    masks, grid, projections = frame(center, radius)
 
     core = core_engine()
     core_cameras = (
@@ -509,13 +585,14 @@ def visual_hull(
         else None
     )
     engine = f"reverse3d-core {core.__version__}" if core is not None else "reverse3d"
+    core_weights: np.ndarray | None = None
 
     def carve(mask_list: list[np.ndarray], tolerance: int) -> np.ndarray:
-        nonlocal core_cameras, engine
+        nonlocal core_cameras, engine, core_weights
         if core is not None and core_cameras is not None:
             try:
                 binary = [np.where(m > 0, 255, 0).astype(np.uint8) for m in mask_list]
-                prob, _ = core.fuse_cameras(core_cameras, binary, grid)
+                prob, core_weights = core.fuse_cameras(core_cameras, binary, grid)
                 return np.asarray(prob) > 0.5
             except Exception as exc:  # never fail a job because of the optional engine
                 logger.warning("reverse3d-core failed (%s); using the open method", exc)
@@ -534,6 +611,40 @@ def visual_hull(
         return (seen >= 3) & (votes >= seen - allowed)
 
     keep = carve(masks, 2)
+    # The cameras' convergence point is biased when many photos are close-ups of one
+    # part (a cap): if the carved object reaches the edge of the cube, re-centre the
+    # cube on it, enlarge it and start again (masks included, their box depends on it).
+    for _ in range(2):
+        cube = keep.reshape(n, n, n)
+        if not (
+            cube[0].any()
+            or cube[-1].any()
+            or cube[:, 0].any()
+            or cube[:, -1].any()
+            or cube[:, :, 0].any()
+            or cube[:, :, -1].any()
+        ):
+            break
+        occupied = grid[keep]
+        center = (occupied.min(axis=0) + occupied.max(axis=0)) / 2
+        radius *= 1.5
+        logger.info("Object reaches the carving volume's edge: re-centred and enlarged")
+        masks, grid, projections = frame(center, radius)
+        keep = carve(masks, 2)
+    # The first boxes come from the cameras' convergence point and can crop the object
+    # (its base, when many photos are close-ups of the top). Re-cut every photo inside
+    # a box around where the carved object projects, with margin, while it grows.
+    for _ in range(2):
+        before = int(keep.sum())
+        boxes = [
+            _box_around(keep & inside, u, v, small.shape)
+            for (u, v, inside), (small, _) in zip(projections, images, strict=True)
+        ]
+        masks, grid, projections = frame(center, radius, boxes)
+        keep = carve(masks, 2)
+        if int(keep.sum()) < 1.05 * before:
+            break
+        logger.info("Object grew to %d voxels with photo boxes around it", int(keep.sum()))
     # The AI segmenter is only loaded (or downloaded) once the photos proved usable.
     ai = segmenter() if segmenter is not None else None
     if ai is not None:
@@ -607,7 +718,11 @@ def visual_hull(
             )
 
     volume = keep.reshape(n, n, n).astype(np.float32)
-    plane = _support_plane(points, center, radius, cameras)
+    camera_up = -np.mean([view.rotation[1] for view in views], axis=0)
+    camera_up /= np.linalg.norm(camera_up) + 1e-12
+    plane = _support_plane(
+        points, center, radius, cameras, grid[volume.reshape(-1) > 0.5], camera_up
+    )
     if plane is not None:
         normal, offset = plane
         height = (grid @ normal + offset).reshape(n, n, n)
@@ -670,4 +785,11 @@ def visual_hull(
         carved_by_depth,
         np.linalg.inv(world_to_model).tolist(),
         engine,
+        [
+            view.name
+            for view, weight in zip(views, core_weights, strict=True)
+            if weight < _UNRELIABLE_WEIGHT
+        ]
+        if core_weights is not None and engine != "reverse3d"
+        else [],
     )

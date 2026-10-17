@@ -442,6 +442,13 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
             mesh_path = photo.mesh_path
         else:
             run.details["silhouette"] = hull.to_dict()
+            if hull.unreliable:
+                names = ", ".join(Path(n).stem for n in hull.unreliable[:5])
+                more = "…" if len(hull.unreliable) > 5 else ""
+                run.warnings.append(
+                    f"{len(hull.unreliable)} photo(s) did not match the rest and were "
+                    f"down-weighted: {names}{more}. Retake them if the object moved."
+                )
             mesh_path = hull.mesh_path
             upright = True
             hull_world = hull.to_world

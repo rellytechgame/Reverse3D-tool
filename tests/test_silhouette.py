@@ -311,7 +311,9 @@ class _FakeCore:
             ok = np.ones(len(points), bool)
             ok[inside] = mask[v[inside], u[inside]] > 127
             keep &= ok
-        return keep.astype(np.float32), np.ones(len(cameras))
+        weights = np.ones(len(cameras))
+        weights[-1] = 0.1  # the core distrusts the last photo
+        return keep.astype(np.float32), weights
 
 
 def test_the_proprietary_core_fuses_the_silhouettes_when_installed(
@@ -326,6 +328,7 @@ def test_the_proprietary_core_fuses_the_silhouettes_when_installed(
     assert core.calls >= 1
     assert result.engine == "reverse3d-core 9.9.9"
     assert result.voxels > 500
+    assert len(result.unreliable) == 1
 
 
 def test_a_failing_core_falls_back_to_the_open_method(
@@ -339,3 +342,25 @@ def test_a_failing_core_falls_back_to_the_open_method(
     result = visual_hull(images, text, tmp_path / "hull.ply", resolution=48, refinements=1)
     assert core.calls == 1
     assert result.engine == "reverse3d"
+    assert result.unreliable == []
+
+
+def test_a_wall_through_the_object_is_not_taken_for_the_table() -> None:
+    from reverse3d.reconstruction.silhouette import _support_plane
+
+    rng = np.random.default_rng(0)
+    table = np.column_stack([rng.uniform(-1, 1, 200), rng.uniform(-1, 1, 200), np.zeros(200)])
+    # More points on a vertical plane that crosses the object (a door, a wall).
+    wall = np.column_stack([np.full(400, 0.1), rng.uniform(-1, 1, 400), rng.uniform(0, 1.5, 400)])
+    obj = np.column_stack(
+        [rng.uniform(-0.3, 0.3, 3000), rng.uniform(-0.3, 0.3, 3000), rng.uniform(0.02, 1.2, 3000)]
+    )
+    cameras = np.array([[3.0, 0.0, 1.5], [-3.0, 0.5, 1.6], [0.0, 3.0, 1.4], [0.5, -3.0, 1.5]])
+    center = np.array([0.0, 0.0, 0.6])
+    plane = _support_plane(
+        np.vstack([table, wall]), center, 1.0, cameras, obj, np.array([0.0, 0.0, 1.0])
+    )
+    assert plane is not None
+    normal, offset = plane
+    assert abs(normal[2]) > 0.99  # the table, not the wall
+    assert np.mean(obj @ normal + offset < 0) < 0.05

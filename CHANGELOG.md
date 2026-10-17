@@ -2,6 +2,17 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.11.1] — 2026-10-17
+
+### Corregido: objetos convertidos en una "franja"
+Diagnosticado con una captura real de 153 fotos (termo con primeros planos de la tapa), donde el modelo salía como una lámina delgada:
+- **El plano de apoyo podía ser una pared.** Se elegía como "mesa" el plano con más puntos cerca del objeto, y en una habitación suele ser una pared o una puerta: el corte dejaba 5 131 vóxeles de un objeto que tiene más de 200 000. Ahora un plano solo es la mesa si está casi perpendicular al "arriba" de las cámaras (≤ 30°), el objeto queda encima y cerca, y no lo atraviesa. Si ningún plano cumple, no se corta.
+- **El recuadro inicial del recorte cortaba la base.** Se centraba en el punto al que apuntan las cámaras, que los primeros planos desplazan hacia la tapa. Ahora, tras el primer tallado, cada foto se vuelve a recortar dentro de un recuadro alrededor del objeto ya tallado, mientras siga creciendo.
+- **El volumen de tallado se recentra y se agranda** si el objeto toca su borde.
+
+### Nuevo
+- **Fotos dudosas:** con Reverse3D Core, el aviso indica qué fotos no coincidían con el resto (por ejemplo, porque el objeto se movió) para repetirlas.
+
 ## [0.11.0] — 2026-10-17
 
 ### Reverse3D Core, el motor exclusivo
