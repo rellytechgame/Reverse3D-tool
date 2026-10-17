@@ -69,6 +69,7 @@ class HullResult:
     faces: int
     support_plane: bool
     ai_segmentation: bool = False
+    depth_carved_voxels: int = 0
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -250,6 +251,102 @@ def _vertex_colors(
     return colors
 
 
+def _fit_inverse_depth(disparity: np.ndarray, depth: np.ndarray) -> tuple[float, float] | None:
+    """Robust fit 1/depth ≈ s·disparity + t (relative AI disparity → metric-like depth)."""
+    inv = 1.0 / depth
+    keep = np.ones(len(inv), bool)
+    for _ in range(3):
+        if keep.sum() < 50:
+            return None
+        a = np.column_stack([disparity[keep], np.ones(int(keep.sum()))])
+        (s, t), *_ = np.linalg.lstsq(a, inv[keep], rcond=None)
+        residual = np.abs(s * disparity + t - inv)
+        mad = float(np.median(residual[keep])) or 1e-9
+        keep = residual < 3 * 1.4826 * mad
+    return (float(s), float(t)) if s > 0 else None
+
+
+def _depth_carve(
+    keep: np.ndarray,
+    grid: np.ndarray,
+    views: list[_View],
+    images: list[tuple[np.ndarray, float]],
+    projections: list[tuple[np.ndarray, np.ndarray, np.ndarray]],
+    masks: list[np.ndarray],
+    estimator: Callable[[np.ndarray], np.ndarray],
+    *,
+    tolerance: float = 0.05,
+    min_votes: int = 3,
+    min_share: float = 0.5,
+) -> np.ndarray:
+    """Empty the voxels that sit clearly in front of the surface the AI depth sees,
+    in at least ``min_votes`` photos *and* in most (``min_share``) of the photos
+    that actually see them. A photo where the voxel lies on the surface votes
+    solid; one where it is hidden behind the surface abstains. A few wrong depth
+    maps therefore cannot carve real material.
+
+    The relative AI depth is calibrated per photo against the carved hull itself
+    (a robust fit on the object's pixels), so only real disagreements carve.
+    """
+    votes = np.zeros(len(grid), np.int32)
+    seen = np.zeros(len(grid), np.int32)
+    for (small, _), view, (u, v, inside), mask in zip(
+        images, views, projections, masks, strict=True
+    ):
+        sel = keep & inside
+        if sel.sum() < 100:
+            continue
+        h, w = small.shape[:2]
+        z = (grid[sel] @ view.rotation.T + view.translation)[:, 2]
+        us, vs = u[sel], v[sel]
+        # Depth of the hull's visible surface per pixel (z-buffer of kept voxels).
+        hull_depth = np.full((h, w), np.inf)
+        np.minimum.at(hull_depth, (vs, us), z)
+        object_px = (mask > 0) & np.isfinite(hull_depth)
+        if object_px.sum() < 100:
+            continue
+        disparity = np.asarray(estimator(cv2.cvtColor(small, cv2.COLOR_BGR2RGB)), np.float64)
+        if disparity.shape != (h, w):
+            disparity = cv2.resize(disparity, (w, h), interpolation=cv2.INTER_LINEAR)
+        fit = _fit_inverse_depth(disparity[object_px], hull_depth[object_px])
+        if fit is None:
+            continue
+        s, t = fit
+        with np.errstate(divide="ignore", invalid="ignore"):
+            observed = 1.0 / np.maximum(s * disparity + t, 1e-9)
+        # A voxel strictly in front of the observed surface, on an object pixel, is air.
+        in_mask = mask[vs, us] > 0
+        front = z < observed[vs, us] * (1.0 - tolerance)
+        on_surface = np.abs(z - observed[vs, us]) <= tolerance * observed[vs, us]
+        idx = np.flatnonzero(sel)
+        seen[idx[in_mask & (front | on_surface)]] += 1  # hidden voxels abstain
+        votes[idx[in_mask & front]] += 1
+    air = (votes >= min_votes) & (votes >= min_share * np.maximum(seen, 1))
+    return keep & ~air
+
+
+def colorize_from_photos(
+    mesh_path: Path, image_dir: Path, model_text_dir: Path, output_path: Path
+) -> Path:
+    """Paint any mesh in COLMAP coordinates with the photos that see it (dense scenes)."""
+    views, _ = read_colmap_text(model_text_dir)
+    images: list[tuple[np.ndarray, float]] = []
+    for view in views:
+        bgr = cv2.imread(str(image_dir / view.name))
+        if bgr is None:
+            raise ProcessingError(f"Could not read {view.name} for colouring.")
+        h, w = bgr.shape[:2]
+        scale = 1280 / max(h, w)
+        size = (round(w * scale), round(h * scale))
+        images.append((cv2.resize(bgr, size, interpolation=cv2.INTER_AREA), scale))
+    mesh: trimesh.Trimesh = trimesh.load(mesh_path, process=False, force="mesh")  # type: ignore[assignment]
+    mesh.visual = trimesh.visual.ColorVisuals(
+        mesh, vertex_colors=_vertex_colors(mesh, views, images)
+    )
+    mesh.export(output_path)
+    return output_path
+
+
 def visual_hull(
     image_dir: Path,
     model_text_dir: Path,
@@ -258,6 +355,7 @@ def visual_hull(
     resolution: int = 176,
     refinements: int = 3,
     segmenter: Callable[[], ObjectSegmenter | None] | None = None,
+    depth: Callable[[], Callable[[np.ndarray], np.ndarray] | None] | None = None,
 ) -> HullResult:
     """Carve the object seen by every photo; writes a watertight, upright mesh.
 
@@ -385,6 +483,16 @@ def visual_hull(
         masks = refined
         keep = carve(masks, 1)
 
+    # Concavities and through-holes (a handle loop, the inside of a cup) never
+    # show in a silhouette: the AI depth of each photo reveals them.
+    estimator = depth() if depth is not None else None
+    carved_by_depth = 0
+    if estimator is not None:
+        before = int(keep.sum())
+        keep = _depth_carve(keep, grid, views, images, projections, masks, estimator)
+        carved_by_depth = before - int(keep.sum())
+        logger.info("AI depth carved %d voxel(s) of concavities", carved_by_depth)
+
     volume = keep.reshape(n, n, n).astype(np.float32)
     plane = _support_plane(points, center, radius, cameras)
     if plane is not None:
@@ -438,5 +546,11 @@ def visual_hull(
     mesh.export(output_path)
     logger.info("Silhouette model: %d views, %d faces", len(views), len(mesh.faces))
     return HullResult(
-        str(output_path), len(views), voxels, len(mesh.faces), plane is not None, ai is not None
+        str(output_path),
+        len(views),
+        voxels,
+        len(mesh.faces),
+        plane is not None,
+        ai is not None,
+        carved_by_depth,
     )

@@ -156,3 +156,129 @@ def test_without_ai_segmenter_grabcut_is_used(tmp_path: Path) -> None:
         images, text, tmp_path / "hull.ply", resolution=48, refinements=1, segmenter=lambda: None
     )
     assert not result.ai_segmentation
+
+
+def _cup() -> trimesh.Trimesh:
+    """An open-top box: its silhouette is a solid block from every side."""
+    parts = [
+        trimesh.creation.box(
+            extents=(0.8, 0.8, 0.12),
+            transform=trimesh.transformations.translation_matrix((0, 0, 0.06)),
+        ),
+        trimesh.creation.box(
+            extents=(0.12, 0.8, 1.0),
+            transform=trimesh.transformations.translation_matrix((0.34, 0, 0.5)),
+        ),
+        trimesh.creation.box(
+            extents=(0.12, 0.8, 1.0),
+            transform=trimesh.transformations.translation_matrix((-0.34, 0, 0.5)),
+        ),
+        trimesh.creation.box(
+            extents=(0.8, 0.12, 1.0),
+            transform=trimesh.transformations.translation_matrix((0, 0.34, 0.5)),
+        ),
+        trimesh.creation.box(
+            extents=(0.8, 0.12, 1.0),
+            transform=trimesh.transformations.translation_matrix((0, -0.34, 0.5)),
+        ),
+    ]
+    return trimesh.util.concatenate(parts)
+
+
+def _ray_boxes(origin: np.ndarray, dirs: np.ndarray, boxes: list[np.ndarray]) -> np.ndarray:
+    """Distance along each ray to the nearest axis-aligned box (inf when missed)."""
+    best = np.full(len(dirs), np.inf)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        inv = 1.0 / dirs
+        for lo, hi in boxes:
+            t1, t2 = (lo - origin) * inv, (hi - origin) * inv
+            near = np.nanmax(np.minimum(t1, t2), axis=1)
+            far = np.nanmin(np.maximum(t1, t2), axis=1)
+            hit = (near <= far) & (far > 0)
+            best = np.where(hit & (near < best), np.maximum(near, 0), best)
+    return best
+
+
+def _cup_scene(
+    folder: Path, size: int = 120, focal: float = 130.0
+) -> tuple[Path, Path, list[tuple[np.ndarray, np.ndarray]]]:
+    """Photos of the cup with known cameras, plus the true AI-like disparity of each."""
+    images, text = folder / "images", folder / "txt"
+    images.mkdir(parents=True)
+    text.mkdir()
+    boxes = [part.bounds for part in _cup().split(only_watertight=False)]
+    rng = np.random.default_rng(1)
+    jj, ii = np.meshgrid(np.arange(size), np.arange(size))
+    rays_cam = np.stack(
+        [(jj - size / 2) / focal, (ii - size / 2) / focal, np.ones_like(jj, float)], -1
+    ).reshape(-1, 3)
+    lines: list[str] = []
+    depth_by_image: list[tuple[np.ndarray, np.ndarray]] = []
+    k = 0
+    for height, count in ((0.7, 10), (2.6, 10), (3.6, 6)):
+        for i in range(count):
+            a = 2 * np.pi * i / count
+            eye = np.array([2.6 * np.cos(a), 2.6 * np.sin(a), height])
+            rot, t = _look_at(eye, np.array([0.0, 0.0, 0.5]))
+            dirs = rays_cam @ rot  # camera → world
+            dirs /= np.linalg.norm(dirs, axis=1, keepdims=True)
+            depth = _ray_boxes(eye, dirs, boxes) * (dirs @ rot[2])
+            depth = depth.reshape(size, size)
+            image = cv2.GaussianBlur(
+                rng.integers(0, 110, (size, size, 3), dtype=np.uint8), (3, 3), 0
+            )
+            image[np.isfinite(depth)] = (235, 235, 235)
+            name = f"img_{k:02d}.png"
+            cv2.imwrite(str(images / name), image)
+            far = float(np.nanmax(np.where(np.isfinite(depth), depth, np.nan))) * 2
+            disparity = 1.0 / np.where(np.isfinite(depth), depth, far)
+            depth_by_image.append((cv2.imread(str(images / name)).astype(np.float32), disparity))
+            q = _quat(rot)
+            lines.append(f"{k + 1} {q[0]} {q[1]} {q[2]} {q[3]} {t[0]} {t[1]} {t[2]} 1 {name}\n\n")
+            k += 1
+    (text / "cameras.txt").write_text(
+        f"1 PINHOLE {size} {size} {focal} {focal} {size / 2} {size / 2}\n"
+    )
+    (text / "images.txt").write_text("".join(lines))
+    table = np.column_stack([rng.uniform(-1, 1, 400), rng.uniform(-1, 1, 400), np.zeros(400)])
+    table = table[(np.abs(table[:, 0]) > 0.45) | (np.abs(table[:, 1]) > 0.45)]
+    rows = (f"{i + 1} {x} {y} {z} 0 0 0 0\n" for i, (x, y, z) in enumerate(table))
+    (text / "points3D.txt").write_text("".join(rows))
+    return images, text, depth_by_image
+
+
+def test_ai_depth_carves_the_inside_of_a_cup(tmp_path: Path) -> None:
+    images, text, truth = _cup_scene(tmp_path)
+
+    def estimator(rgb: np.ndarray) -> np.ndarray:
+        # The hull hands over its (resized) copy of a photo: find which one it is
+        # and return that photo's true disparity, like a perfect depth AI would.
+        small = cv2.resize(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR), truth[0][0].shape[1::-1])
+        best = min(truth, key=lambda item: float(np.abs(item[0] - small).mean()))
+        return cv2.resize(best[1], (rgb.shape[1], rgb.shape[0]), interpolation=cv2.INTER_NEAREST)
+
+    plain = visual_hull(images, text, tmp_path / "plain.ply", resolution=64, refinements=1)
+    carved = visual_hull(
+        images, text, tmp_path / "carved.ply", resolution=64, refinements=1, depth=lambda: estimator
+    )
+    assert carved.depth_carved_voxels > 0
+    solid = trimesh.load(plain.mesh_path)
+    cup = trimesh.load(carved.mesh_path)
+    # The silhouettes alone fill the cup; the AI depth empties a good part of it.
+    assert cup.volume < 0.8 * solid.volume
+    assert cup.is_watertight
+
+
+def test_any_mesh_is_coloured_from_the_photos(tmp_path: Path) -> None:
+    from reverse3d.reconstruction.silhouette import colorize_from_photos
+
+    images, text = _scene(tmp_path)
+    mesh = trimesh.creation.cylinder(radius=RADIUS * 0.98, height=HEIGHT * 0.98, sections=48)
+    mesh = mesh.subdivide().subdivide()  # vertices along the sides, not only at the caps
+    mesh.apply_translation([0, 0, HEIGHT / 2])
+    plain = tmp_path / "cylinder.ply"
+    mesh.export(plain)
+    out = colorize_from_photos(plain, images, text, tmp_path / "colour.ply")
+    colours = np.asarray(trimesh.load(out, process=False).visual.vertex_colors)[:, :3]
+    side = np.abs(mesh.vertices[:, 2] - HEIGHT / 2) < HEIGHT * 0.4
+    assert colours[side].mean() > 200  # the photographed cylinder is white

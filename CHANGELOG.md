@@ -2,6 +2,15 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.9.0] — 2026-10-17
+
+### Huecos e interiores con la IA de profundidad
+- **La talla por silueta ahora vacía concavidades y huecos** (interiores de vasos, aros de asas) que ninguna silueta muestra. La IA de profundidad de cada foto se calibra contra el volumen tallado (ajuste robusto en los píxeles del objeto), y un vóxel se vacía solo si está claramente delante de la superficie que ve la IA en al menos 3 fotos y en la mayoría de las fotos que realmente lo ven. Las fotos donde queda oculto se abstienen, así que unas pocas profundidades erróneas no borran material real: con el termo de prueba se conserva el 99,7 % del volumen, mientras que un vaso hueco se vacía. `HullResult.depth_carved_voxels` informa cuánto se talló.
+- Sin la IA de profundidad, las concavidades quedan rellenas, como antes.
+
+### Color de edificios y terrenos desde las fotos
+- Las escenas densas se pintan proyectando las propias fotos (`colorize_from_photos`, con visibilidad), que es nítido e independiente de la densidad de la nube; el color de la nube de puntos queda como alternativa.
+
 ## [0.8.1] — 2026-10-16
 
 ### La IA local siempre se instala

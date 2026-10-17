@@ -340,6 +340,18 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
                 )
                 return None
 
+        def load_depth() -> Callable[[np.ndarray], np.ndarray] | None:
+            # AI depth reveals concavities and holes (cup insides, handle loops).
+            from reverse3d.reconstruction.depth_estimation import predict_depth
+
+            device = torch_device(run.settings)
+            try:
+                predict_depth(np.zeros((32, 32, 3), np.uint8), device=device, settings=run.settings)
+            except Reverse3DError as exc:
+                logger.info("AI depth unavailable (%s); concavities stay filled", exc.message)
+                return None
+            return lambda rgb: predict_depth(rgb, device=device, settings=run.settings)
+
         try:
             hull = run.step(
                 "silhouette",
@@ -348,6 +360,7 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
                     Path(photo.sparse_text_dir or ""),
                     run.out / "reconstruction" / "object_hull.ply",
                     segmenter=load_segmenter,
+                    depth=load_depth,
                 ),
             )
         except ProcessingError as exc:
@@ -374,14 +387,29 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
             hint='Install the meshing extra: pip install "reverse3d[recon]" (Python ≤ 3.12).',
         )
     cloud = photo.dense_points_path or photo.sparse_points_path
-    if not upright and cloud:
+    if not upright:
+        # Dense scenes: colour from the photos themselves (sharp, independent of how
+        # dense the cloud is); the cloud's colours are the fallback.
+        colored_path = run.out / "reconstruction" / "mesh_color.ply"
+        colored: Path | None = None
         try:
-            colored = _color_from_cloud(
-                Path(mesh_path), Path(cloud), run.out / "reconstruction" / "mesh_color.ply"
-            )
-            mesh_path = str(colored) if colored else mesh_path
+            from reverse3d.reconstruction.silhouette import colorize_from_photos
+
+            if photo.images_dir and photo.sparse_text_dir:
+                colored = colorize_from_photos(
+                    Path(mesh_path),
+                    Path(photo.images_dir),
+                    Path(photo.sparse_text_dir),
+                    colored_path,
+                )
         except Exception as exc:  # colour is a bonus
-            logger.info("Colouring from the point cloud skipped: %s", exc)
+            logger.info("Colouring from the photos skipped: %s", exc)
+        if colored is None and cloud:
+            try:
+                colored = _color_from_cloud(Path(mesh_path), Path(cloud), colored_path)
+            except Exception as exc:  # colour is a bonus
+                logger.info("Colouring from the point cloud skipped: %s", exc)
+        mesh_path = str(colored) if colored else mesh_path
     model = run.out / "model.stl"
     _clean(
         run,
