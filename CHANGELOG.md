@@ -2,6 +2,14 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.7.0] — 2026-10-16
+
+### IA de recorte: tapas, asas y partes oscuras
+- **Segment Anything (Meta, Apache-2.0) recorta el objeto en cada foto** durante la reconstrucción por silueta (`reverse3d.vision.segmenter`). El motor sabe dónde está el objeto en cada foto (por las posiciones de cámara) y le da a la IA un recuadro y un punto. La IA devuelve el objeto completo, incluidas tapas negras, asas y partes oscuras que el recorte por color (GrabCut) perdía sobre fondos oscuros.
+- Dos rondas: cada recorte con IA parte del volumen esculpido en la ronda anterior. La imagen se codifica una sola vez y se reutiliza.
+- **Modelo local y seguro:** `facebook/sam-vit-base` (unos 375 MB), en la lista permitida y fijado por commit, solo con pesos `safetensors`. `reverse3d offline prepare` (y por tanto el instalador) lo descarga junto con el de profundidad; después funciona sin internet. Usa la GPU si la hay.
+- La IA solo se carga cuando las fotos ya demostraron ser útiles. Sin el extra de IA, o sin conexión antes de la primera descarga, se usa GrabCut y se avisa.
+
 ## [0.6.0] — 2026-10-16
 
 ### Objetos y personajes: reconstrucción por silueta (mucho más rápida y fiel)

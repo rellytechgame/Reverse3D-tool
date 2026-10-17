@@ -36,6 +36,7 @@ from reverse3d.errors import (
     DependencyMissingError,
     InputValidationError,
     ProcessingError,
+    Reverse3DError,
 )
 from reverse3d.hardware import torch_device, wants_gpu
 from reverse3d.profiles import profile_values
@@ -262,6 +263,19 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
     upright = False
     if silhouette:
         from reverse3d.reconstruction.silhouette import visual_hull
+        from reverse3d.vision.segmenter import ObjectSegmenter
+
+        def load_segmenter() -> ObjectSegmenter | None:
+            # The AI segmenter keeps dark caps, handles and thin parts; without it
+            # (no AI extra, or offline before the first download) GrabCut is used.
+            try:
+                return ObjectSegmenter(run.settings, device=torch_device(run.settings))
+            except Reverse3DError as exc:
+                logger.info("AI segmentation unavailable (%s); using GrabCut", exc.message)
+                run.warnings.append(
+                    "AI segmentation unavailable: thin or dark parts may be missing."
+                )
+                return None
 
         try:
             hull = run.step(
@@ -270,6 +284,7 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
                     Path(photo.images_dir or ""),
                     Path(photo.sparse_text_dir or ""),
                     run.out / "reconstruction" / "object_hull.ply",
+                    segmenter=load_segmenter,
                 ),
             )
         except ProcessingError as exc:

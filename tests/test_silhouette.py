@@ -104,3 +104,55 @@ def test_too_few_photos(tmp_path: Path) -> None:
     (text / "images.txt").write_text("\n\n".join(rows[:5]) + "\n\n")
     with pytest.raises(ProcessingError, match="at least"):
         visual_hull(images, text, tmp_path / "hull.ply", resolution=48, refinements=0)
+
+
+class _FakeSegmenter:
+    """Stands in for Segment Anything: the object is the bright part inside the box."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def embed(self, rgb: np.ndarray) -> dict[str, np.ndarray]:
+        return {"rgb": rgb}
+
+    def segment(
+        self, state: dict[str, np.ndarray], box: tuple[int, int, int, int], point: tuple[int, int]
+    ) -> np.ndarray:
+        self.calls += 1
+        gray = state["rgb"].mean(axis=2)
+        mask = np.zeros(gray.shape, np.uint8)
+        x0, y0, x1, y1 = box
+        mask[y0 : y1 + 1, x0 : x1 + 1] = np.where(gray[y0 : y1 + 1, x0 : x1 + 1] > 200, 255, 0)
+        return mask
+
+
+def test_ai_segmenter_is_loaded_lazily_and_used(tmp_path: Path) -> None:
+    images, text = _scene(tmp_path)
+    fake = _FakeSegmenter()
+    loads: list[int] = []
+
+    def factory() -> _FakeSegmenter:
+        loads.append(1)
+        return fake
+
+    result = visual_hull(
+        images,
+        text,
+        tmp_path / "hull.ply",
+        resolution=64,
+        refinements=1,
+        segmenter=factory,  # type: ignore[arg-type]
+    )
+    assert loads == [1] and fake.calls == 2 * 30  # two AI rounds over the 30 photos
+    assert result.ai_segmentation
+    mesh = trimesh.load(result.mesh_path)
+    width = (mesh.extents[0] + mesh.extents[1]) / 2
+    assert mesh.is_watertight and 1.3 < mesh.extents[2] / width < 2.2
+
+
+def test_without_ai_segmenter_grabcut_is_used(tmp_path: Path) -> None:
+    images, text = _scene(tmp_path)
+    result = visual_hull(
+        images, text, tmp_path / "hull.ply", resolution=48, refinements=1, segmenter=lambda: None
+    )
+    assert not result.ai_segmentation

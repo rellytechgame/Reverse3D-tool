@@ -54,6 +54,7 @@ MODEL_REVISIONS: dict[str, str] = {
     "depth-anything/Depth-Anything-V2-Small-hf": "5426e4f0f36572d16453bbda7a8389317b1bef99",
     "depth-anything/Depth-Anything-V2-Base-hf": "b1958afc87fb45a9e3746cb387596094de553ed8",
     "depth-anything/Depth-Anything-V2-Large-hf": "7581137eff8d4e94f6e796d3baea0e9fa79b22d2",
+    "facebook/sam-vit-base": "70c1a07f894ebb5b307fd9eaaee97b9dfc16068f",
 }
 
 
@@ -100,8 +101,9 @@ def is_offline(settings: Settings) -> bool:
 
 def _allowed_models() -> dict[str, tuple[str, str]]:
     from reverse3d.reconstruction.depth_estimation import ALLOWED_MODELS
+    from reverse3d.vision.segmenter import ALLOWED_SEGMENTERS
 
-    return dict(ALLOWED_MODELS)
+    return {**ALLOWED_MODELS, **ALLOWED_SEGMENTERS}
 
 
 def _default_model() -> str:
@@ -177,7 +179,7 @@ def resolve_model(model_id: str, settings: Settings) -> Path:
         return local
     if is_offline(settings):
         raise DependencyMissingError(
-            "The AI depth model is not on this computer and there is no internet connection.",
+            "The AI model is not on this computer and there is no internet connection.",
             hint="Connect to the internet once and run: reverse3d offline prepare",
         )
     try:
@@ -190,7 +192,7 @@ def resolve_model(model_id: str, settings: Settings) -> Path:
     except Exception as exc:  # network errors come in many shapes; report them plainly
         has_internet(refresh=True)
         raise DependencyMissingError(
-            f"Could not download the AI depth model ({exc.__class__.__name__}).",
+            f"Could not download the AI model ({exc.__class__.__name__}).",
             hint="Check your connection and run: reverse3d offline prepare",
         ) from exc
 
@@ -201,7 +203,10 @@ def prepare(settings: Settings, *, include_non_commercial: bool = False) -> dict
     Safe to run any time: models already on disk are skipped. It never raises
     for a missing optional stack; that is reported in the result instead.
     """
-    models = [_default_model()]
+    from reverse3d.vision.segmenter import DEFAULT_SEGMENTER
+
+    # Depth (reliefs) and segmentation (object silhouettes), both commercial-friendly.
+    models = [_default_model(), DEFAULT_SEGMENTER]
     if include_non_commercial:
         models += [m for m in _allowed_models() if m not in models]
 

@@ -23,12 +23,18 @@ from __future__ import annotations
 import logging
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
 import trimesh
 
 from reverse3d.errors import DependencyMissingError, ProcessingError
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from reverse3d.vision.segmenter import ObjectSegmenter
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +68,7 @@ class HullResult:
     voxels: int
     faces: int
     support_plane: bool
+    ai_segmentation: bool = False
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -191,6 +198,7 @@ def visual_hull(
     *,
     resolution: int = 176,
     refinements: int = 3,
+    segmenter: Callable[[], ObjectSegmenter | None] | None = None,
 ) -> HullResult:
     """Carve the object seen by every photo; writes a watertight, upright mesh.
 
@@ -269,6 +277,36 @@ def visual_hull(
         return (seen >= 3) & (votes >= seen - tolerance)
 
     keep = carve(masks, 2)
+    # The AI segmenter is only loaded (or downloaded) once the photos proved usable.
+    ai = segmenter() if segmenter is not None else None
+    if ai is not None:
+        # AI segmentation: a box around the projected hull (taller upwards, where caps
+        # and handles get lost) and a point on it. Two rounds, each from the new hull.
+        states = [ai.embed(cv2.cvtColor(small, cv2.COLOR_BGR2RGB)) for small, _ in images]
+        for _ in range(2):
+            ai_masks: list[np.ndarray] = []
+            for state, (small, _), (u, v, inside), old in zip(
+                states, images, projections, masks, strict=True
+            ):
+                sel = keep & inside
+                if not sel.any():
+                    ai_masks.append(old)
+                    continue
+                us, vs = u[sel], v[sel]
+                x0, x1 = int(us.min()), int(us.max())
+                y0, y1 = int(vs.min()), int(vs.max())
+                pad_x, pad_y = 0.15 * (x1 - x0 + 1), 0.15 * (y1 - y0 + 1)
+                box = (
+                    max(0, int(x0 - pad_x)),
+                    max(0, int(y0 - 2.5 * pad_y)),
+                    min(small.shape[1] - 1, int(x1 + pad_x)),
+                    min(small.shape[0] - 1, int(y1 + pad_y)),
+                )
+                point = (int(np.median(us)), int(np.median(vs)))
+                ai_masks.append(ai.segment(state, box, point))
+            masks = ai_masks
+            keep = carve(masks, 1)
+        refinements = 0
     for _ in range(refinements):
         refined: list[np.ndarray] = []
         for (small, _), (u, v, inside), old in zip(images, projections, masks, strict=True):
@@ -333,4 +371,6 @@ def visual_hull(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     mesh.export(output_path)
     logger.info("Silhouette model: %d views, %d faces", len(views), len(mesh.faces))
-    return HullResult(str(output_path), len(views), voxels, len(mesh.faces), plane is not None)
+    return HullResult(
+        str(output_path), len(views), voxels, len(mesh.faces), plane is not None, ai is not None
+    )
