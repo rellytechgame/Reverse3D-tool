@@ -70,6 +70,8 @@ class HullResult:
     support_plane: bool
     ai_segmentation: bool = False
     depth_carved_voxels: int = 0
+    #: 4x4 matrix from the model's coordinates back to the COLMAP world (textures).
+    to_world: list[list[float]] | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -540,7 +542,9 @@ def visual_hull(
     transform = np.eye(4)
     transform[:3, :3] = basis
     mesh.apply_transform(transform)
-    mesh.apply_translation([-mesh.centroid[0], -mesh.centroid[1], -mesh.bounds[0][2]])
+    shift = np.array([-mesh.centroid[0], -mesh.centroid[1], -mesh.bounds[0][2]])
+    mesh.apply_translation(shift)
+    world_to_model = trimesh.transformations.translation_matrix(shift) @ transform
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     mesh.export(output_path)
@@ -553,4 +557,5 @@ def visual_hull(
         plane is not None,
         ai is not None,
         carved_by_depth,
+        np.linalg.inv(world_to_model).tolist(),
     )

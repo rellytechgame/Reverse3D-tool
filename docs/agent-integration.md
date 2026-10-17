@@ -42,6 +42,7 @@ reverse3d agent tools --format anthropic   # | openai | gemini
 
 ```python
 from reverse3d.agent import tool_definitions
+
 tools = tool_definitions("anthropic")
 ```
 
@@ -89,13 +90,16 @@ from reverse3d import Settings
 from reverse3d.agent import execute_tool, tool_definitions
 
 client = anthropic.Anthropic()
-settings = Settings.from_env()             # REVERSE3D_WORKSPACE define el sandbox
+settings = Settings.from_env()  # REVERSE3D_WORKSPACE define el sandbox
 tools = tool_definitions("anthropic")
 messages = [{"role": "user", "content": "Mide piezas/soporte.stl y genera un render."}]
 
-for _ in range(20):                        # límite duro de turnos (OWASP LLM10)
+for _ in range(20):  # límite duro de turnos (OWASP LLM10)
     response = client.messages.create(
-        model="claude-opus-5-5", max_tokens=16000, tools=tools, messages=messages,
+        model="claude-opus-5-5",
+        max_tokens=16000,
+        tools=tools,
+        messages=messages,
     )
     if response.stop_reason != "tool_use":
         break
@@ -103,11 +107,15 @@ for _ in range(20):                        # límite duro de turnos (OWASP LLM10
     results = []
     for block in response.content:
         if block.type == "tool_use":
-            out = execute_tool(block.name, block.input, settings)   # valida + sandbox
-            results.append({
-                "type": "tool_result", "tool_use_id": block.id,
-                "content": json.dumps(out), "is_error": not out["ok"],
-            })
+            out = execute_tool(block.name, block.input, settings)  # valida + sandbox
+            results.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": json.dumps(out),
+                    "is_error": not out["ok"],
+                }
+            )
     messages.append({"role": "user", "content": results})
 ```
 
@@ -115,6 +123,7 @@ for _ in range(20):                        # límite duro de turnos (OWASP LLM10
 
 ```python
 from reverse3d.agent import execute_tool, tool_definitions
+
 tools = tool_definitions("openai")
 # ... para cada tool_call del modelo:
 result = execute_tool(call.function.name, json.loads(call.function.arguments), settings)
@@ -124,7 +133,8 @@ result = execute_tool(call.function.name, json.loads(call.function.arguments), s
 
 ```python
 from reverse3d.agent import execute_tool, tool_definitions
-declarations = tool_definitions("gemini")   # function_declarations
+
+declarations = tool_definitions("gemini")  # function_declarations
 # ... para cada function_call del modelo:
 result = execute_tool(fc.name, dict(fc.args), settings)
 ```

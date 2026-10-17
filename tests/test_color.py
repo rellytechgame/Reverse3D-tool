@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 import trimesh
 
 from reverse3d.config import Settings
@@ -47,3 +48,17 @@ def test_plain_meshes_get_no_colour_outputs(tmp_path: Path, settings: Settings) 
     run = _Run(recipe="mesh_report", settings=settings, out=tmp_path)
     _clean(run, plain, tmp_path / "model.stl", scale=1.0, overwrite=True)
     assert "model_glb" not in run.outputs
+
+
+def test_glb_stands_up_in_y_up_viewers(tmp_path: Path) -> None:
+    from reverse3d.recipes import _export_glb
+
+    tall = trimesh.creation.box(extents=(1.0, 1.0, 4.0))  # Z-up, like our models
+    tall.apply_translation((0, 0, 2.0))
+    _export_glb(tall, tmp_path / "m.glb")
+    scene = trimesh.load(tmp_path / "m.glb")
+    extents = scene.to_geometry().extents
+    assert extents[1] == pytest.approx(4.0)  # glTF up axis is Y
+    # Viewers that read only the geometry (Studio) still get the Z-up mesh.
+    raw = next(iter(scene.geometry.values()))
+    assert raw.extents[2] == pytest.approx(4.0)

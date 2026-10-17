@@ -2,6 +2,15 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.10.0] — 2026-10-17
+
+### Texturas fotográficas de alta definición
+- **El modelo ahora sale con textura real de 2048×2048** (`reverse3d.reconstruction.texture`): la malla se despliega en UV con xatlas (MIT) y cada texel toma el color de la foto que lo ve más de frente (peso `cos⁶`, visibilidad con z-buffer, solo píxeles que la IA marcó como objeto). Un filtro de mediana y un relleno de bordes eliminan puntos y costuras. Logotipos y etiquetas se leen en el modelo, no solo en el render. `model.glb` lleva la textura como material PBR; el render de Blender la conserva.
+
+### Puntos con IA para capturas difíciles (ALIKED + LightGlue)
+- **Dos modelos de IA más, locales:** si SIFT no logra ubicar las fotos (superficies lisas, brillos, poca textura), el motor reintenta solo con puntos y emparejamiento aprendidos (ALIKED + LightGlue de COLMAP, ONNX en la CPU). Es más lento, por eso se usa como rescate y no siempre.
+- `reverse3d offline prepare` (y el instalador) descarga ambos modelos en `~/.reverse3d/models/colmap`, verificados con SHA-256; `offline status` informa del componente `ai_features`.
+
 ## [0.9.0] — 2026-10-17
 
 ### Huecos e interiores con la IA de profundidad

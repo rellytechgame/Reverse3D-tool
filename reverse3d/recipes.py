@@ -36,6 +36,7 @@ from reverse3d.config import Settings
 from reverse3d.errors import (
     CaptureQualityError,
     DependencyMissingError,
+    ExternalToolError,
     InputValidationError,
     ProcessingError,
     Reverse3DError,
@@ -161,12 +162,26 @@ def _clean(
             import trimesh
 
             glb = dst.with_name("model.glb")
-            trimesh.load(color_ply, process=False, force="mesh").export(glb)
+            _export_glb(trimesh.load(color_ply, process=False, force="mesh"), glb)
             run.outputs["model_color"] = str(color_ply)
             run.outputs["model_glb"] = str(glb)
         except Exception as exc:  # colour is a bonus: never fail the model for it
             logger.info("Coloured model skipped: %s", exc)
     return report.after
+
+
+def _export_glb(mesh: Any, path: Path) -> None:
+    """Write a GLB that stands up in any viewer: glTF is Y-up, our models are Z-up.
+
+    The geometry keeps its Z-up coordinates and a root node rotates it, so
+    Blender, game engines and web viewers show it upright.
+    """
+    import trimesh
+
+    scene = trimesh.Scene()
+    up = trimesh.transformations.rotation_matrix(-np.pi / 2, [1, 0, 0])
+    scene.add_geometry(mesh, node_name="model", transform=up)
+    scene.export(path)
 
 
 def _has_vertex_colors(path: Path) -> bool:
@@ -253,6 +268,30 @@ _DEFAULT_LOOK = {
 }
 
 
+def _texture(run: _Run, model: Path, photo: Any, to_world: list[list[float]], scale: float) -> None:
+    """Bake a photo texture onto the final model: model.glb gets real detail."""
+    try:
+        import trimesh
+
+        from reverse3d.reconstruction.texture import bake_texture
+
+        mesh: Any = trimesh.load(model, process=False, force="mesh")
+        # The cleaned model is the carved hull scaled by ``scale``.
+        world = np.asarray(to_world) @ np.diag([1 / scale, 1 / scale, 1 / scale, 1.0])
+        textured = run.step(
+            "texture",
+            lambda: bake_texture(
+                mesh, Path(photo.images_dir), Path(photo.sparse_text_dir), to_world=world
+            ),
+        )
+        glb = model.with_name("model.glb")
+        _export_glb(textured, glb)
+        run.outputs["model_glb"] = str(glb)
+        run.details["texture"] = {"size": 2048, "faces": len(textured.faces)}
+    except Exception as exc:  # the texture is a bonus: never fail the model for it
+        logger.info("Texture skipped: %s", exc)
+
+
 def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
     from reverse3d.reconstruction.photogrammetry import (
         PhotogrammetryOptions,
@@ -304,7 +343,7 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
     # white or glossy surfaces. Open scenes keep classic dense reconstruction.
     silhouette = scene in ("object", "character")
 
-    def photogrammetry(classic: bool) -> PhotogrammetryResult:
+    def photogrammetry(classic: bool, features: str = "sift") -> PhotogrammetryResult:
         return run_photogrammetry(
             src,
             run.out / "reconstruction",
@@ -317,13 +356,28 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
                 build_mesh=classic,
                 poisson_depth=preset.poisson_depth,
                 density_quantile=preset.density_quantile,
+                features=features,  # type: ignore[arg-type]
             ),
-            overwrite=opt.overwrite or not classic,
+            overwrite=opt.overwrite or not classic or features != "sift",
         )
 
-    photo = run.step("photogrammetry", lambda: photogrammetry(classic=not silhouette))
+    try:
+        photo = run.step("photogrammetry", lambda: photogrammetry(classic=not silhouette))
+    except ProcessingError as exc:
+        # Rescue for hard sets: learned AI features (ALIKED + LightGlue) place
+        # photos that SIFT cannot. Slower (CPU), so only when SIFT fell short.
+        logger.info("SIFT could not place the photos (%s); retrying with AI features", exc.message)
+        try:
+            photo = run.step(
+                "photogrammetry_ai",
+                lambda: photogrammetry(classic=not silhouette, features="aliked"),
+            )
+        except (ProcessingError, DependencyMissingError, ExternalToolError):
+            raise exc from None
+        run.warnings.append("Photos placed with AI features (ALIKED + LightGlue).")
     mesh_path: str | None = photo.mesh_path
     upright = False
+    hull_world: list[list[float]] | None = None
     if silhouette:
         from reverse3d.reconstruction.silhouette import visual_hull
         from reverse3d.vision.segmenter import ObjectSegmenter
@@ -374,6 +428,7 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
             run.details["silhouette"] = hull.to_dict()
             mesh_path = hull.mesh_path
             upright = True
+            hull_world = hull.to_world
     if photo.registered_images >= 0.9 * max(photo.total_images, 1):
         # COLMAP placed (almost) every photo: the quick pre-check's capture advice
         # would only confuse.
@@ -422,6 +477,8 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
         keep_largest=preset.keep_largest,
         repair=opt.repair,
     )
+    if upright and hull_world is not None:
+        _texture(run, model, photo, hull_world, opt.scale)
     return _measure(run, model)
 
 
@@ -610,7 +667,12 @@ def run_recipe(
         source = prepare_heic_input(source, out)  # iPhone HEIC photos -> JPEG
     stats = _RECIPES[recipe](run, source, opt)
     if opt.render:
-        _render(run, Path(run.outputs.get("model_color") or run.outputs["model"]), opt.overwrite)
+        textured = run.details.get("texture") and run.outputs.get("model_glb")
+        _render(
+            run,
+            Path(textured or run.outputs.get("model_color") or run.outputs["model"]),
+            opt.overwrite,
+        )
 
     summary: dict[str, Any] = {
         "recipe": recipe,

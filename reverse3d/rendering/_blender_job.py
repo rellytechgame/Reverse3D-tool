@@ -121,6 +121,13 @@ def shade(obj: bpy.types.Object, mode: str) -> None:
 
 
 def make_material(obj: bpy.types.Object, job: dict) -> None:
+    existing = obj.active_material
+    if (
+        existing is not None
+        and existing.node_tree is not None
+        and any(node.type == "TEX_IMAGE" for node in existing.node_tree.nodes)
+    ):
+        return  # a photo texture (glTF import): keep it as it is
     mat = bpy.data.materials.new("reverse3d_material")
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes.get("Principled BSDF")

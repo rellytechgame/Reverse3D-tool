@@ -59,6 +59,55 @@ MODEL_REVISIONS: dict[str, str] = {
 }
 
 
+#: Learned feature models COLMAP runs through ONNX (ALIKED, BSD-3; LightGlue,
+#: Apache-2.0): (download URL, pinned SHA-256). Used to rescue hard photo sets.
+COLMAP_MODELS: dict[str, tuple[str, str]] = {
+    "aliked-n16rot.onnx": (
+        "https://github.com/colmap/colmap/releases/download/3.13.0/aliked-n16rot.onnx",
+        "39c423d0a6f03d39ec89d3d1d61853765c2fb6a8b8381376c703e5758778a547",
+    ),
+    "aliked-lightglue.onnx": (
+        "https://github.com/colmap/colmap/releases/download/3.13.0/aliked-lightglue.onnx",
+        "b9a5de7204648b18a8cf5dcac819f9d30de1a5961ef03756803c8b86c2dceb8d",
+    ),
+}
+
+
+def colmap_model_path(name: str) -> Path | None:
+    """Local copy of a COLMAP ONNX model, if downloaded (filesystem check only)."""
+    path = models_dir() / "colmap" / name
+    return path if path.is_file() else None
+
+
+def download_colmap_models() -> dict[str, str]:
+    """Download the learned-feature models, verifying their pinned SHA-256."""
+    import hashlib
+    import urllib.request
+
+    status: dict[str, str] = {}
+    folder = models_dir() / "colmap"
+    folder.mkdir(parents=True, exist_ok=True)
+    for name, (url, sha) in COLMAP_MODELS.items():
+        target = folder / name
+        if target.is_file() and hashlib.sha256(target.read_bytes()).hexdigest() == sha:
+            status[name] = "ready"
+            continue
+        try:
+            with urllib.request.urlopen(url, timeout=120) as response:  # noqa: S310  # nosec B310 - pinned https URL, SHA-256 checked
+                data = response.read()
+        except Exception as exc:  # network errors come in many shapes
+            status[name] = f"failed ({exc.__class__.__name__})"
+            continue
+        if hashlib.sha256(data).hexdigest() != sha:
+            status[name] = "failed (checksum mismatch)"
+            continue
+        tmp = target.with_suffix(".part")
+        tmp.write_bytes(data)
+        tmp.replace(target)
+        status[name] = "downloaded"
+    return status
+
+
 def models_dir() -> Path:
     """Folder that holds the downloaded AI models (``~/.reverse3d/models``)."""
     return home_dir() / "models"
@@ -263,6 +312,15 @@ def prepare(settings: Settings, *, include_non_commercial: bool = False) -> dict
             }
         )
 
+    if online or all(colmap_model_path(n) for n in COLMAP_MODELS):
+        for name, state in download_colmap_models().items():
+            results.append({"model": f"colmap/{name}", "status": state.split(" ")[0]})
+    else:
+        results += [
+            {"model": f"colmap/{n}", "status": "missing", "detail": "No internet connection."}
+            for n in COLMAP_MODELS
+            if not colmap_model_path(n)
+        ]
     ready = all(r["status"] in ("ready", "downloaded") for r in results)
     return {
         "ready": ready,
@@ -294,6 +352,7 @@ def offline_status(settings: Settings) -> dict[str, Any]:
         "ai_segmentation": DEFAULT_SEGMENTER,
         "ai_depth": _default_model(),
     }
+    features_ready = all(colmap_model_path(n) for n in COLMAP_MODELS)
     on_disk = {key: local_model_path(model) is not None for key, model in ai_models.items()}
     internet = None if settings.offline != "auto" else has_internet()
 
@@ -310,6 +369,7 @@ def offline_status(settings: Settings) -> dict[str, Any]:
             key: {"available": depth_installed, "offline": depth_installed and on_disk[key]}
             for key in ai_models
         },
+        "ai_features": {"available": True, "offline": features_ready},
     }
     missing = []
     names = {
@@ -320,6 +380,11 @@ def offline_status(settings: Settings) -> dict[str, Any]:
     if depth_installed and not model_on_disk:
         missing.append(
             "AI depth model not downloaded yet: run `reverse3d offline prepare` while online."
+        )
+    if not features_ready:
+        missing.append(
+            "AI feature models (ALIKED + LightGlue) not downloaded yet: "
+            "run `reverse3d offline prepare` while online."
         )
     for key in ("ai_subject", "ai_segmentation"):
         if depth_installed and not on_disk[key]:

@@ -94,6 +94,9 @@ class PhotogrammetryOptions:
     poisson_depth: int | None = None
     #: share of the least supported surface trimmed after Poisson.
     density_quantile: float = 0.02
+    #: "sift" (fast, GPU) or "aliked": learned ALIKED features + LightGlue matching,
+    #: which places photos of hard sets SIFT cannot (CPU, much slower).
+    features: Literal["sift", "aliked"] = "sift"
 
     def validate(self) -> None:
         if self.quality not in _PRESETS:
@@ -297,13 +300,36 @@ class ColmapPipeline:
             "--ImageReader.single_camera",
             "1" if options.single_camera else "0",
         ]
+        learned = options.features == "aliked"
+        if learned:
+            from reverse3d.offline import colmap_model_path, download_colmap_models
+
+            if not colmap_model_path("aliked-n16rot.onnx"):
+                download_colmap_models()
+            aliked = colmap_model_path("aliked-n16rot.onnx")
+            if aliked is None:
+                raise DependencyMissingError(
+                    "The AI feature model (ALIKED) is not on this computer.",
+                    hint="Connect to the internet once and run: reverse3d offline prepare",
+                )
+            # ONNX on the CPU: the CUDA runtime it needs is not bundled with COLMAP.
+            args += [
+                "--FeatureExtraction.type",
+                "ALIKED_N16ROT",
+                "--FeatureExtraction.use_gpu",
+                "0",
+                "--AlikedExtraction.n16rot_model_path",
+                str(aliked),
+            ]
         self._stage(
             result,
             "feature_extractor",
             self._with_options(
                 "feature_extractor",
                 args,
-                {
+                {}
+                if learned
+                else {
                     ("FeatureExtraction.use_gpu", "SiftExtraction.use_gpu"): gpu,
                     ("FeatureExtraction.max_image_size", "SiftExtraction.max_image_size"): str(
                         preset["max_image_size"]
@@ -324,8 +350,19 @@ class ColmapPipeline:
             matcher = "exhaustive" if len(images) <= _EXHAUSTIVE_LIMIT else "sequential"
         command = f"{matcher}_matcher"
         extra: dict[tuple[str, ...], str] = {
-            ("FeatureMatching.use_gpu", "SiftMatching.use_gpu"): gpu
+            ("FeatureMatching.use_gpu", "SiftMatching.use_gpu"): "0" if learned else gpu
         }
+        if learned:
+            from reverse3d.offline import colmap_model_path
+
+            glue = colmap_model_path("aliked-lightglue.onnx")
+            if glue is None:
+                raise DependencyMissingError(
+                    "The AI matching model (LightGlue) is not on this computer.",
+                    hint="Connect to the internet once and run: reverse3d offline prepare",
+                )
+            extra[("FeatureMatching.type",)] = "ALIKED_LIGHTGLUE"
+            extra[("AlikedMatching.lightglue_model_path",)] = str(glue)
         if matcher == "spatial":
             extra[("SpatialMatching.is_gps",)] = "1"
         try:

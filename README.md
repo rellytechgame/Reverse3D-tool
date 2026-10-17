@@ -151,7 +151,7 @@ Cada archivo modificado se **respalda antes** (`*.reverse3d-backup-<fecha>`). So
 | `--lite` | `-Lite` | Todo, con la IA local en la CPU (PyTorch CPU, ~250 MB en vez de ~2.5 GB) |
 | `--minimal` | `-Minimal` | Núcleo + MCP + IA local, sin herramientas externas |
 | `--no-tools` | `-NoTools` | No instalar Blender ni COLMAP |
-| *(en todos los modos)* | *(en todos los modos)* | **La IA local se instala y se descarga siempre** (clasificador, segmentación y profundidad, unos 750 MB) para que todo funcione sin internet |
+| *(en todos los modos)* | *(en todos los modos)* | **La IA local se instala y se descarga siempre** (clasificador, segmentación, profundidad y puntos con IA, unos 800 MB) para que todo funcione sin internet |
 | `--no-auto-approve` | `-NoAutoApprove` | Que los agentes pregunten antes de cada herramienta |
 | `--with recon,depth` | `-With recon,depth` | Extras a elección |
 | `--device auto\|cpu\|gpu` | `-Device …` | Dispositivo por defecto |
@@ -290,7 +290,7 @@ reverse3d config set verbosity full     # si alguna vez necesitas el detalle com
 
 ## 🔌 Sin internet (modo offline)
 
-reverse3d **funciona sin conexión**. Todo el cálculo es local (OpenCV, COLMAP, Open3D, trimesh, Blender). Lo único que se descarga es el modelo de IA de profundidad, y **el instalador lo deja descargado**.
+reverse3d **funciona sin conexión**. Todo el cálculo es local (OpenCV, COLMAP, Open3D, trimesh, Blender). Lo único que se descarga son los modelos de IA local (sujeto, recorte, profundidad y los puntos ALIKED + LightGlue), y **el instalador los deja descargados**.
 
 - **Cambio automático:** si el equipo no detecta internet, reverse3d pasa solo a modo offline. No tienes que hacer nada.
 - **Comprobar:** `reverse3d offline status` dice si hay conexión y qué funciona sin ella. `reverse3d doctor` lo incluye en su informe.
@@ -348,6 +348,8 @@ Si las fotos están borrosas o falta una herramienta, **no reintenta en vano**: 
 | 🧱 **Plano → pieza** | Extrusión de contornos a sólido 3D con escala real | Shapely + trimesh |
 | 📷 **Fotogrametría** | Fotos → SfM → MVS denso → nube → malla | COLMAP + Open3D |
 | 🌊 **Profundidad con IA** | Una foto → mapa de profundidad → relieve 2.5D | Depth Anything V2 |
+| 🎨 **Texturas** | Textura fotográfica 2048² desde las propias fotos (UV, visibilidad, sin costuras) en `model.glb` | xatlas + OpenCV |
+| 🧠 **Puntos con IA** | Rescate automático de capturas difíciles con puntos y emparejamiento aprendidos | ALIKED + LightGlue (ONNX) |
 | 🛠️ **Reparación de mallas** | Limpieza, restos sueltos, agujeros, normales, Taubin, decimación, alineación OBB/PCA, escala | trimesh |
 | 📏 **Metrología** | Cotas AABB/OBB, área, volumen, centro de masa, estanqueidad | trimesh |
 | 📐 **Primitivas** | Planos, cilindros y esferas con RANSAC (radios, ejes, normales) | NumPy |
