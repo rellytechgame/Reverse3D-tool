@@ -45,9 +45,20 @@ def segmenter_available() -> bool:
 def _load(model_id: str, device: str, model_dir: str) -> tuple[Any, Any]:
     from transformers import SamModel, SamProcessor
 
-    model = SamModel.from_pretrained(model_dir, local_files_only=True, use_safetensors=True)
-    processor = SamProcessor.from_pretrained(model_dir, local_files_only=True)
-    model.to(device).eval()  # type: ignore[arg-type]  # transformers stubs: device str is fine
+    try:  # keep CLI/agent output clean: no loading progress bars
+        from transformers.utils import logging as hf_logging
+
+        hf_logging.disable_progress_bar()
+        hf_logging.set_verbosity_error()
+    except ImportError:  # pragma: no cover - very old transformers
+        pass
+    # model_dir is the local snapshot of a commit-pinned, allowlisted model
+    # (reverse3d.offline.resolve_model): nothing is fetched here.
+    model: Any = SamModel.from_pretrained(  # nosec B615
+        model_dir, local_files_only=True, use_safetensors=True, trust_remote_code=False
+    )
+    processor = SamProcessor.from_pretrained(model_dir, local_files_only=True)  # nosec B615
+    model.to(device).eval()
     logger.info("Loaded %s on %s", model_id, device)
     return model, processor
 
@@ -65,10 +76,13 @@ class ObjectSegmenter:
                 "The AI segmentation stack is not installed.",
                 hint='pip install "reverse3d[depth]"',
             )
-        from reverse3d.offline import resolve_model
+        from reverse3d.offline import force_offline_env, is_offline, resolve_model
 
         self.device = device
-        self.model, self.processor = _load(model_id, device, str(resolve_model(model_id, settings)))
+        model_dir = resolve_model(model_id, settings)
+        if is_offline(settings):
+            force_offline_env()
+        self.model, self.processor = _load(model_id, device, str(model_dir))
 
     def embed(self, rgb: np.ndarray) -> dict[str, Any]:
         """Run the heavy image encoder once; reuse the result for several prompts."""
