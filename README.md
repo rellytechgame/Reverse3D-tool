@@ -147,10 +147,11 @@ Cada archivo modificado se **respalda antes** (`*.reverse3d-backup-<fecha>`). So
 
 | bash (`install.sh`) | PowerShell (`install.ps1`) | Efecto |
 |---------------------|----------------------------|--------|
-| *(sin opciones)* | *(sin opciones)* | **Todo**: núcleo, MCP, render, mallado, IA de profundidad, Blender y COLMAP |
-| `--lite` | `-Lite` | Todo menos la IA de profundidad (PyTorch); ahorra hasta ~2.5 GB |
-| `--minimal` | `-Minimal` | Solo núcleo + MCP, sin herramientas externas |
+| *(sin opciones)* | *(sin opciones)* | **Todo**: núcleo, MCP, render, mallado, IA local (con CUDA si hay NVIDIA), Blender y COLMAP |
+| `--lite` | `-Lite` | Todo, con la IA local en la CPU (PyTorch CPU, ~250 MB en vez de ~2.5 GB) |
+| `--minimal` | `-Minimal` | Núcleo + MCP + IA local, sin herramientas externas |
 | `--no-tools` | `-NoTools` | No instalar Blender ni COLMAP |
+| *(en todos los modos)* | *(en todos los modos)* | **La IA local se instala y se descarga siempre** (clasificador, segmentación y profundidad, unos 750 MB) para que todo funcione sin internet |
 | `--no-auto-approve` | `-NoAutoApprove` | Que los agentes pregunten antes de cada herramienta |
 | `--with recon,depth` | `-With recon,depth` | Extras a elección |
 | `--device auto\|cpu\|gpu` | `-Device …` | Dispositivo por defecto |

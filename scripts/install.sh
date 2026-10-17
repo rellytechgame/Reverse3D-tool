@@ -20,8 +20,8 @@
 #   6. writes ~/.reverse3d/install-status.json and ~/.reverse3d/install.log
 #
 # Options:
-#   --lite                 skip AI depth (PyTorch); everything else is installed
-#   --minimal              only the core + MCP server, no external tools
+#   --lite                 local AI on the CPU (CPU PyTorch, ~250 MB instead of ~2.5 GB)
+#   --minimal              only the core + MCP server + local AI, no external tools
 #   --with EXTRAS          comma list of extras: recon,depth,render,mcp,agents
 #   --no-tools             do not install Blender and COLMAP
 #   --no-auto-approve      let agents ask before each reverse3d tool call
@@ -64,6 +64,7 @@ STATUS_FILE="$R3D_HOME/install-status.json"
 LOG_FILE="$R3D_HOME/install.log"
 WORKSPACE="${REVERSE3D_WORKSPACE:-$HOME/reverse3d-workspace}"
 EXTRAS="mcp,render,recon,depth"
+LITE=0
 AGENTS="auto"
 DEVICE=""; PROFILE=""; TOOLSET=""; SOURCE=""
 DO_SETUP=1; DO_TOOLS=1; AUTO_APPROVE=1; UNINSTALL=0
@@ -94,8 +95,8 @@ die() { printf '\033[1;31m[reverse3d]\033[0m %s\n' "$*" >&2; write_status false 
 while [ $# -gt 0 ]; do
   case "$1" in
     --full) EXTRAS="mcp,render,recon,depth" ;;   # kept for compatibility (now the default)
-    --lite) EXTRAS="mcp,render,recon" ;;
-    --minimal) EXTRAS="mcp"; DO_TOOLS=0 ;;
+    --lite) LITE=1 ;;   # the local AI stays installed, on the CPU build of PyTorch
+    --minimal) EXTRAS="mcp,depth"; DO_TOOLS=0 ;;
     --with) EXTRAS="mcp,$2"; shift ;;
     --no-tools) DO_TOOLS=0 ;;
     --no-auto-approve) AUTO_APPROVE=0 ;;
@@ -113,6 +114,8 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+# The local AI (extra "depth") is always installed so every mode works offline.
+case ",$EXTRAS," in *,depth,*) ;; *) EXTRAS="$EXTRAS,depth" ;; esac
 
 # Values are passed to pip/reverse3d as single arguments; still refuse anything odd.
 case "$EXTRAS" in *[!a-z0-9,]*) die "Invalid --with value" ;; esac
@@ -281,7 +284,7 @@ done
 case " $OPTIONAL " in *" depth "*)
   if [ -n "${REVERSE3D_TORCH_INDEX:-}" ]; then TORCH_INDEX="$REVERSE3D_TORCH_INDEX"
   elif [ "$OS" = "Darwin" ]; then TORCH_INDEX=""
-  elif [ "$HAS_NVIDIA" = 1 ]; then TORCH_INDEX="https://download.pytorch.org/whl/cu126"
+  elif [ "$HAS_NVIDIA" = 1 ] && [ "$LITE" = 0 ]; then TORCH_INDEX="https://download.pytorch.org/whl/cu126"
   else TORCH_INDEX="https://download.pytorch.org/whl/cpu"; fi   # ~10x smaller than the default
   if ! "$VPY" -c 'import torch' 2>/dev/null; then
     say "Installing PyTorch (large download, please wait)"
@@ -397,14 +400,15 @@ if [ "$DO_SETUP" -eq 1 ]; then
 fi
 
 # ─── 7. Offline readiness ─────────────────────────────────────────────────────
-# Downloads the pinned AI depth model once, so reverse3d keeps working without
-# internet (no-op when the AI depth module is not installed).
-say "Preparing offline mode (downloads the AI depth model once)"
+# Downloads the pinned local AI models once (subject classifier, segmentation and
+# depth), so every reverse3d feature keeps working without
+# internet.
+say "Downloading the local AI (subject, cut-out and depth models, about 750 MB) so everything works offline"
 OFFLINE_OUT="$("$EXE" --json offline prepare 2>/dev/null || true)"
 case "$OFFLINE_OUT" in
   *'"ready": true'*) say "Offline mode ready: reverse3d works without internet" ;;
-  *) warn "AI depth model not downloaded yet; run 'reverse3d offline prepare' when online."
-     add_missing "offline AI depth model" ;;
+  *) warn "Local AI models not downloaded yet; run 'reverse3d offline prepare' when online."
+     add_missing "offline local AI models" ;;
 esac
 
 # ─── 8. Summary ───────────────────────────────────────────────────────────────

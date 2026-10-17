@@ -30,6 +30,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 
+import numpy as np
+
 from reverse3d.config import Settings
 from reverse3d.errors import (
     CaptureQualityError,
@@ -135,27 +137,68 @@ def _clean(
     parts, and tiny debris is already dropped by the area filter."""
     from reverse3d.reverse_eng.mesh_cleaner import CleanOptions, clean_mesh_file
 
+    options = CleanOptions(
+        keep_largest_only=keep_largest,
+        fill_holes=fill_holes,
+        align=align,
+        ground=align != "none",
+        scale=scale,
+        max_hole_edges=2000 if repair == "strong" else 200,
+    )
     report = run.step(
         "clean",
-        lambda: clean_mesh_file(
-            src,
-            dst,
-            run.settings,
-            CleanOptions(
-                keep_largest_only=keep_largest,
-                fill_holes=fill_holes,
-                align=align,
-                ground=align != "none",
-                scale=scale,
-                max_hole_edges=2000 if repair == "strong" else 200,
-            ),
-            overwrite=overwrite,
-        ),
+        lambda: clean_mesh_file(src, dst, run.settings, options, overwrite=overwrite),
     )
     run.warnings.extend(report.warnings)
     run.outputs["model"] = str(dst)
     run.details["clean"] = report.to_dict()
+    if _has_vertex_colors(src):
+        # Same cleaning on the coloured mesh (deterministic, colours follow the
+        # vertices): model_color.ply for renders and model.glb for games and viewers.
+        try:
+            color_ply = dst.with_name("model_color.ply")
+            clean_mesh_file(src, color_ply, run.settings, options, overwrite=True)
+            import trimesh
+
+            glb = dst.with_name("model.glb")
+            trimesh.load(color_ply, process=False, force="mesh").export(glb)
+            run.outputs["model_color"] = str(color_ply)
+            run.outputs["model_glb"] = str(glb)
+        except Exception as exc:  # colour is a bonus: never fail the model for it
+            logger.info("Coloured model skipped: %s", exc)
     return report.after
+
+
+def _has_vertex_colors(path: Path) -> bool:
+    import trimesh
+
+    try:
+        mesh: Any = trimesh.load(path, process=False, force="mesh")
+    except Exception:
+        return False
+    colors = getattr(mesh.visual, "vertex_colors", None)
+    if colors is None or len(colors) != len(mesh.vertices):
+        return False
+    rgb = np.asarray(colors)[:, :3]
+    return float(np.max(np.std(rgb, axis=0))) > 1.0  # not just a uniform default colour
+
+
+def _color_from_cloud(mesh_path: Path, cloud_path: Path, out: Path) -> Path | None:
+    """Paint a mesh with the colours of the point cloud it was built from."""
+    import trimesh
+    from scipy.spatial import cKDTree
+
+    cloud: Any = trimesh.load(cloud_path, process=False)
+    colors = getattr(cloud, "colors", None)
+    if colors is None or len(colors) != len(getattr(cloud, "vertices", [])):
+        return None
+    mesh: Any = trimesh.load(mesh_path, process=False, force="mesh")
+    _, idx = cKDTree(np.asarray(cloud.vertices)).query(np.asarray(mesh.vertices), k=4)
+    rgb = np.asarray(colors)[idx][..., :3].astype(np.float64).mean(axis=1)
+    rgba = np.column_stack([rgb, np.full(len(rgb), 255.0)]).clip(0, 255).astype(np.uint8)
+    mesh.visual = trimesh.visual.ColorVisuals(mesh, vertex_colors=rgba)
+    mesh.export(out)
+    return out
 
 
 def _render(run: _Run, mesh: Path, overwrite: bool) -> None:
@@ -208,28 +251,6 @@ _DEFAULT_LOOK = {
     "architecture": "architecture",
     "landscape": "aerial",
 }
-
-
-def _color_outputs(run: _Run, colored: Path, model: Path, scale: float) -> None:
-    """Give the final model the photo colours of the carved hull: model.glb (games,
-    web, viewers) and model_color.ply (renders)."""
-    import numpy as np
-    import trimesh
-    from scipy.spatial import cKDTree
-
-    source: Any = trimesh.load(colored, process=False, force="mesh")
-    target: Any = trimesh.load(model, process=False, force="mesh")
-    colors = getattr(source.visual, "vertex_colors", None)
-    if colors is None or len(colors) != len(source.vertices):
-        return
-    _, nearest = cKDTree(np.asarray(source.vertices) * scale).query(np.asarray(target.vertices))
-    target.visual = trimesh.visual.ColorVisuals(target, vertex_colors=np.asarray(colors)[nearest])
-    glb = run.out / "model.glb"
-    ply = run.out / "model_color.ply"
-    target.export(glb)
-    target.export(ply)
-    run.outputs["model_glb"] = str(glb)
-    run.outputs["model_color"] = str(ply)
 
 
 def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
@@ -352,6 +373,15 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
             "Point cloud created but no mesh could be built.",
             hint='Install the meshing extra: pip install "reverse3d[recon]" (Python ≤ 3.12).',
         )
+    cloud = photo.dense_points_path or photo.sparse_points_path
+    if not upright and cloud:
+        try:
+            colored = _color_from_cloud(
+                Path(mesh_path), Path(cloud), run.out / "reconstruction" / "mesh_color.ply"
+            )
+            mesh_path = str(colored) if colored else mesh_path
+        except Exception as exc:  # colour is a bonus
+            logger.info("Colouring from the point cloud skipped: %s", exc)
     model = run.out / "model.stl"
     _clean(
         run,
@@ -364,11 +394,6 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
         keep_largest=preset.keep_largest,
         repair=opt.repair,
     )
-    if upright:
-        try:
-            _color_outputs(run, Path(mesh_path), model, opt.scale)
-        except Exception as exc:  # colour is a bonus: never fail the model for it
-            logger.info("Colour transfer skipped: %s", exc)
     return _measure(run, model)
 
 

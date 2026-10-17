@@ -20,10 +20,12 @@
   6. Writes %USERPROFILE%\.reverse3d\install-status.json and install.log.
 
 .PARAMETER Lite
-  Skip AI depth (PyTorch, ~2.5 GB with CUDA). Everything else is installed.
+  Run the local AI on the CPU: installs the CPU build of PyTorch (~250 MB instead
+  of ~2.5 GB with CUDA). The local AI models are always installed and downloaded.
 
 .PARAMETER Minimal
-  Only the core and the MCP server; no extras and no external tools.
+  Only the core, the MCP server and the local AI; no other extras and no
+  external tools (Blender, COLMAP).
 
 .PARAMETER NoTools
   Do not download Blender and COLMAP.
@@ -125,8 +127,10 @@ function Write-Status([bool]$ok, [string]$err = "") {
 }
 
 $Extras = "mcp,render,recon,depth"
-if ($Lite) { $Extras = "mcp,render,recon" }
-if ($Minimal) { $Extras = "mcp"; $NoTools = $true }
+# The local AI (extra "depth": PyTorch + transformers) is always installed: every
+# mode works offline. -Lite only switches it to the smaller CPU build.
+if ($Minimal) { $Extras = "mcp,depth"; $NoTools = $true }
+if (($Extras.Split(",")) -notcontains "depth") { $Extras = "$Extras,depth" }
 if ($With) { $Extras = "mcp,$With" }
 if ($Extras -notmatch '^[a-z0-9,]+$') { Die "Invalid -With value" }
 if ($Ref -notmatch '^[A-Za-z0-9._/-]+$') { Die "Invalid -Ref value" }
@@ -304,7 +308,7 @@ $optional = @($extraList | Where-Object { $core -notcontains $_ })
 if ($optional -contains "depth") {
     # PyPI only ships CPU PyTorch for Windows; the CPU index build is ~10x smaller than the default.
     $TorchIndex = if ($env:REVERSE3D_TORCH_INDEX) { $env:REVERSE3D_TORCH_INDEX }
-                  elseif ($HasNvidia) { "https://download.pytorch.org/whl/cu126" }
+                  elseif ($HasNvidia -and -not $Lite) { "https://download.pytorch.org/whl/cu126" }
                   else { "https://download.pytorch.org/whl/cpu" }
     & $VPy -c "import torch" 2>$null
     if ($LASTEXITCODE -ne 0) {
@@ -392,15 +396,15 @@ if (-not $NoSetup) {
 }
 
 # ─── 7. Offline readiness ───────────────────────────────────────────────────────────────────
-# Downloads the pinned AI depth model once, so reverse3d keeps working without
-# internet (no-op when the AI depth module is not installed).
-Say "Preparing offline mode (downloads the AI depth model once)"
+# Downloads the pinned local AI models once (subject classifier, segmentation and
+# depth), so every reverse3d feature keeps working without internet.
+Say "Downloading the local AI (subject, cut-out and depth models, about 750 MB) so everything works offline"
 $offlineOut = (& $Exe --json offline prepare 2>$null) | Out-String
 if ($offlineOut -match '"ready":\s*true') {
     Say "Offline mode ready: reverse3d works without internet"
 } else {
-    Warn "AI depth model not downloaded yet; run 'reverse3d offline prepare' when online."
-    $Missing.Add("offline AI depth model")
+    Warn "Local AI models not downloaded yet; run 'reverse3d offline prepare' when online."
+    $Missing.Add("offline local AI models")
 }
 
 # ─── 8. Summary ─────────────────────────────────────────────────────────────────────────────

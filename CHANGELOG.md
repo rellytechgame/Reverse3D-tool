@@ -2,6 +2,14 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.8.1] — 2026-10-16
+
+### La IA local siempre se instala
+- **Ningún modo de instalación omite la IA.** `--lite`/`-Lite` ahora instala la IA en la CPU (PyTorch CPU, unos 250 MB en lugar de 2,5 GB con CUDA); `--minimal`/`-Minimal` y `--with` también la incluyen. El instalador descarga siempre los tres modelos (clasificador, segmentación y profundidad, unos 750 MB) para que todo funcione sin internet.
+
+### Color también en arquitectura y paisajes
+- La malla de las escenas densas toma el color de la nube de puntos de COLMAP antes de limpiarse. La misma limpieza genera `model_color.ply` y `model.glb` para cualquier malla con color, sea por silueta o densa.
+
 ## [0.8.0] — 2026-10-16
 
 ### Equipo de IA local: reconoce, recorta, colorea y renderiza según el sujeto
