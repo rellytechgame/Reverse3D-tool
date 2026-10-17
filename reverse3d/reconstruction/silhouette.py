@@ -20,10 +20,11 @@ Pipeline:
 
 from __future__ import annotations
 
+import importlib
 import logging
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import cv2
 import numpy as np
@@ -61,6 +62,19 @@ class _View:
     camera: _Camera
 
 
+def core_engine() -> Any | None:
+    """reverse3d-core, Voxel Enterprise's proprietary engine, when it is installed.
+
+    It replaces the silhouette fusion with its own robust model (photos that
+    disagree with the rest lose weight instead of erasing the object). Without
+    it, the open method below is used.
+    """
+    try:
+        return importlib.import_module("reverse3d_core")
+    except ImportError:
+        return None
+
+
 @dataclass
 class HullResult:
     mesh_path: str
@@ -72,6 +86,8 @@ class HullResult:
     depth_carved_voxels: int = 0
     #: 4x4 matrix from the model's coordinates back to the COLMAP world (textures).
     to_world: list[list[float]] | None = None
+    #: engine that fused the silhouettes: "reverse3d" (open) or "reverse3d-core X.Y"
+    engine: str = "reverse3d"
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -268,6 +284,14 @@ def _fit_inverse_depth(disparity: np.ndarray, depth: np.ndarray) -> tuple[float,
     return (float(s), float(t)) if s > 0 else None
 
 
+# Share of the photos seeing a voxel that may wrongly call it background.
+_DISSENT_SHARE = 0.1
+
+# Depth carving may hollow concavities (a cup changes ~20 % of its silhouettes),
+# never wipe out what the photos show.
+_MAX_SILHOUETTE_LOSS = 0.35
+
+
 def _depth_carve(
     keep: np.ndarray,
     grid: np.ndarray,
@@ -325,6 +349,45 @@ def _depth_carve(
         votes[idx[in_mask & front]] += 1
     air = (votes >= min_votes) & (votes >= min_share * np.maximum(seen, 1))
     return keep & ~air
+
+
+def _silhouette_coverage(
+    keep: np.ndarray,
+    projections: list[tuple[np.ndarray, np.ndarray, np.ndarray]],
+    masks: list[np.ndarray],
+    cell: int,
+) -> float:
+    """Share of the photos' object pixels that the kept voxels still cover.
+
+    Measured on ``cell``-pixel blocks so that projected voxel centres fill the
+    silhouette even when a voxel spans several pixels.
+    """
+    covered = total = 0
+    for (u, v, inside), mask in zip(projections, masks, strict=True):
+        h, w = mask.shape[:2]
+        sel = keep & inside
+        drawn = np.zeros((h // cell + 1, w // cell + 1), bool)
+        drawn[v[sel] // cell, u[sel] // cell] = True
+        obj = np.zeros_like(drawn)
+        ys, xs = np.nonzero(mask > 0)
+        obj[ys // cell, xs // cell] = True
+        covered += int((drawn & obj).sum())
+        total += int(obj.sum())
+    return covered / total if total else 1.0
+
+
+def _silhouette_loss(
+    before: np.ndarray,
+    after: np.ndarray,
+    projections: list[tuple[np.ndarray, np.ndarray, np.ndarray]],
+    masks: list[np.ndarray],
+) -> float:
+    """How much of the photos' silhouettes ``after`` stops covering, versus ``before``."""
+    for cell in (1, 2, 4, 8, 16):  # the finest blocks the original hull fills
+        reference = _silhouette_coverage(before, projections, masks, cell)
+        if reference >= 0.9:
+            break
+    return reference - _silhouette_coverage(after, projections, masks, cell)
 
 
 def colorize_from_photos(
@@ -425,7 +488,38 @@ def visual_hull(
         inside = (z > 0) & (u >= 0) & (v >= 0) & (u < small.shape[1]) & (v < small.shape[0])
         projections.append((u, v, inside))
 
+    core = core_engine()
+    core_cameras = (
+        [
+            core.Camera(
+                view.name,
+                small.shape[1],
+                small.shape[0],
+                view.camera.fx * scale,
+                view.camera.fy * scale,
+                view.camera.cx * scale,
+                view.camera.cy * scale,
+                view.camera.k,
+                view.rotation,
+                view.translation,
+            )
+            for (small, scale), view in zip(images, views, strict=True)
+        ]
+        if core is not None
+        else None
+    )
+    engine = f"reverse3d-core {core.__version__}" if core is not None else "reverse3d"
+
     def carve(mask_list: list[np.ndarray], tolerance: int) -> np.ndarray:
+        nonlocal core_cameras, engine
+        if core is not None and core_cameras is not None:
+            try:
+                binary = [np.where(m > 0, 255, 0).astype(np.uint8) for m in mask_list]
+                prob, _ = core.fuse_cameras(core_cameras, binary, grid)
+                return np.asarray(prob) > 0.5
+            except Exception as exc:  # never fail a job because of the optional engine
+                logger.warning("reverse3d-core failed (%s); using the open method", exc)
+                core_cameras, engine = None, "reverse3d"
         votes = np.zeros(len(grid), np.int32)
         seen = np.zeros(len(grid), np.int32)
         for fg, (u, v, inside) in zip(mask_list, projections, strict=True):
@@ -433,7 +527,11 @@ def visual_hull(
             hit = np.zeros(len(grid), bool)
             hit[inside] = fg[v[inside], u[inside]] > 0
             votes += hit
-        return (seen >= 3) & (votes >= seen - tolerance)
+        # A voxel survives unless a clear share of the photos that see it call it
+        # background. A fixed count does not scale: with 130+ photos, three slightly
+        # wrong cut-outs (a glare, the handle in front) would erase the whole object.
+        allowed = np.maximum(tolerance, np.ceil(_DISSENT_SHARE * seen))
+        return (seen >= 3) & (votes >= seen - allowed)
 
     keep = carve(masks, 2)
     # The AI segmenter is only loaded (or downloaded) once the photos proved usable.
@@ -491,9 +589,22 @@ def visual_hull(
     carved_by_depth = 0
     if estimator is not None:
         before = int(keep.sum())
-        keep = _depth_carve(keep, grid, views, images, projections, masks, estimator)
-        carved_by_depth = before - int(keep.sum())
-        logger.info("AI depth carved %d voxel(s) of concavities", carved_by_depth)
+        carved = _depth_carve(keep, grid, views, images, projections, masks, estimator)
+        # Hollowing a real concavity barely changes what the photos show; if the
+        # silhouettes stop matching, the depth is eating real material: discard it.
+        lost = _silhouette_loss(keep, carved, projections, masks)
+        if lost > _MAX_SILHOUETTE_LOSS:
+            logger.info(
+                "AI depth carving discarded: it would erase %.0f%% of the silhouettes", lost * 100
+            )
+        else:
+            keep = carved
+            carved_by_depth = before - int(keep.sum())
+            logger.info(
+                "AI depth carved %d voxel(s) of concavities (silhouette loss %.1f%%)",
+                carved_by_depth,
+                lost * 100,
+            )
 
     volume = keep.reshape(n, n, n).astype(np.float32)
     plane = _support_plane(points, center, radius, cameras)
@@ -558,4 +669,5 @@ def visual_hull(
         ai is not None,
         carved_by_depth,
         np.linalg.inv(world_to_model).tolist(),
+        engine,
     )

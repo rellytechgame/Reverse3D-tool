@@ -97,6 +97,9 @@ class PhotogrammetryOptions:
     #: "sift" (fast, GPU) or "aliked": learned ALIKED features + LightGlue matching,
     #: which places photos of hard sets SIFT cannot (CPU, much slower).
     features: Literal["sift", "aliked"] = "sift"
+    #: SIFT features per photo; None uses the quality preset. Placing cameras
+    #: alone (silhouette objects) needs far fewer than a dense surface.
+    max_features: int | None = None
 
     def validate(self) -> None:
         if self.quality not in _PRESETS:
@@ -334,7 +337,9 @@ class ColmapPipeline:
                     ("FeatureExtraction.max_image_size", "SiftExtraction.max_image_size"): str(
                         preset["max_image_size"]
                     ),
-                    ("SiftExtraction.max_num_features",): str(preset["max_features"]),
+                    ("SiftExtraction.max_num_features",): str(
+                        options.max_features or preset["max_features"]
+                    ),
                 },
             ),
         )

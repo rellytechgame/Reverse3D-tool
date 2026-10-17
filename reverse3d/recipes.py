@@ -170,6 +170,13 @@ def _clean(
     return report.after
 
 
+# SIFT features per photo when COLMAP only places the cameras.
+_CAMERA_FEATURES = 4096
+
+# Exhaustive matching stays practical for object captures up to this size.
+_OBJECT_EXHAUSTIVE_LIMIT = 400
+
+
 def _export_glb(mesh: Any, path: Path) -> None:
     """Write a GLB that stands up in any viewer: glTF is Y-up, our models are Z-up.
 
@@ -342,6 +349,12 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
     # and the shape is carved from the silhouettes, which also works on plain,
     # white or glossy surfaces. Open scenes keep classic dense reconstruction.
     silhouette = scene in ("object", "character")
+    # An object is shot in several rings plus close-ups, never in one ordered
+    # sequence: match every photo with every other so all of them join one model
+    # (sequential matching split a 153-photo bottle into four pieces).
+    matcher = preset.matcher
+    if silhouette and matcher == "auto" and analysis.image_count <= _OBJECT_EXHAUSTIVE_LIMIT:
+        matcher = "exhaustive"
 
     def photogrammetry(classic: bool, features: str = "sift") -> PhotogrammetryResult:
         return run_photogrammetry(
@@ -350,13 +363,16 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
             run.settings,
             PhotogrammetryOptions(
                 quality=quality,  # type: ignore[arg-type]
-                matcher=preset.matcher,
+                matcher=matcher,
                 dense="auto" if classic else "off",
                 use_gpu=wants_gpu(run.settings),
                 build_mesh=classic,
                 poisson_depth=preset.poisson_depth,
                 density_quantile=preset.density_quantile,
                 features=features,  # type: ignore[arg-type]
+                # Silhouette objects only need the cameras: fewer features keep
+                # exhaustive matching of a few hundred photos fast on any GPU.
+                max_features=None if classic else _CAMERA_FEATURES,
             ),
             overwrite=opt.overwrite or not classic or features != "sift",
         )

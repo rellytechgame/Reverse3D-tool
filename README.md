@@ -28,6 +28,7 @@ Desarrollado por **[Voxel Enterprise](https://voxel.lat)**
 - [💰 Ahorro de tokens](#-ahorro-de-tokens)
 - [🔌 Sin internet (modo offline)](#-sin-internet-modo-offline)
 - [🤖 Piloto automático](#-piloto-automático)
+- [🧠 Reverse3D Core (motor exclusivo)](#-reverse3d-core-motor-exclusivo)
 - [Capacidades](#capacidades)
 - [Herramientas externas opcionales](#herramientas-externas-opcionales)
 - [Referencia de la CLI](#referencia-de-la-cli)
@@ -336,6 +337,23 @@ reverse3d watch
 | Nube de puntos (XYZ/PCD/PLY sin caras) | mallado Poisson + `scan_to_cad` | — |
 
 Si las fotos están borrosas o falta una herramienta, **no reintenta en vano**: te explica qué cambiar. Funciona sin internet y sin modelo de IA, porque son reglas, no adivinanzas.
+
+---
+
+## 🧠 Reverse3D Core (motor exclusivo)
+
+**Reverse3D Core** es el motor de reconstrucción propio de Voxel Enterprise. Es **propietario** (no forma parte de este repositorio de código abierto) y viene **incluido en reverse3d Studio**, que lo instala solo.
+
+- **Cuando está instalado**, reverse3d lo usa automáticamente para fusionar las siluetas de los objetos. Aprende qué fotos son fiables, así que un brillo, un mal recorte o una foto mal ubicada **ya no borran el objeto**, y cada foto extra suma precisión.
+- **Sin él**, reverse3d funciona igual con su método abierto.
+- **Comprobarlo:** `reverse3d doctor` muestra `core: {available: true, version: …}`. El informe de cada trabajo indica qué motor se usó (`details.silhouette.engine`).
+
+| Prueba interna (objeto de geometría conocida) | Método abierto | Reverse3D Core |
+|---|---|---|
+| Recortes perfectos | 0,943 | 0,941 |
+| 15 % de recortes defectuosos | 0,000 (pierde el objeto) | **0,921** |
+
+*(Coincidencia volumétrica, IoU: 1 = idéntico.)*
 
 ---
 

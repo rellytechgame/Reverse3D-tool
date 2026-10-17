@@ -37,6 +37,11 @@ def _no_ai_models(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(classifier, "classifier_available", lambda: False)
     monkeypatch.setattr(segmenter, "segmenter_available", lambda: False)
+    # The proprietary engine is optional: tests exercise the open method unless
+    # they plug in a fake core explicitly.
+    from reverse3d.reconstruction import silhouette
+
+    monkeypatch.setattr(silhouette, "core_engine", lambda: None)
 
 
 @pytest.fixture

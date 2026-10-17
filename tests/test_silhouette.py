@@ -282,3 +282,60 @@ def test_any_mesh_is_coloured_from_the_photos(tmp_path: Path) -> None:
     colours = np.asarray(trimesh.load(out, process=False).visual.vertex_colors)[:, :3]
     side = np.abs(mesh.vertices[:, 2] - HEIGHT / 2) < HEIGHT * 0.4
     assert colours[side].mean() > 200  # the photographed cylinder is white
+
+
+class _FakeCore:
+    """Stands in for reverse3d-core: records its calls, defers to a plain carve."""
+
+    __version__ = "9.9.9"
+
+    def __init__(self, fail: bool = False) -> None:
+        self.calls = 0
+        self.fail = fail
+
+    @staticmethod
+    def Camera(*args: object) -> tuple[object, ...]:  # noqa: N802 - mirrors the core API
+        return args
+
+    def fuse_cameras(self, cameras, masks, points):  # type: ignore[no-untyped-def]
+        self.calls += 1
+        if self.fail:
+            raise RuntimeError("boom")
+        keep = np.ones(len(points), bool)
+        for cam, mask in zip(cameras, masks, strict=True):
+            _name, w, h, fx, fy, cx, cy, _k, rot, t = cam
+            xc = points @ rot.T + t
+            u = np.round(fx * xc[:, 0] / xc[:, 2] + cx).astype(int)
+            v = np.round(fy * xc[:, 1] / xc[:, 2] + cy).astype(int)
+            inside = (xc[:, 2] > 0) & (u >= 0) & (v >= 0) & (u < w) & (v < h)
+            ok = np.ones(len(points), bool)
+            ok[inside] = mask[v[inside], u[inside]] > 127
+            keep &= ok
+        return keep.astype(np.float32), np.ones(len(cameras))
+
+
+def test_the_proprietary_core_fuses_the_silhouettes_when_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from reverse3d.reconstruction import silhouette
+
+    core = _FakeCore()
+    monkeypatch.setattr(silhouette, "core_engine", lambda: core)
+    images, text = _scene(tmp_path)
+    result = visual_hull(images, text, tmp_path / "hull.ply", resolution=48, refinements=1)
+    assert core.calls >= 1
+    assert result.engine == "reverse3d-core 9.9.9"
+    assert result.voxels > 500
+
+
+def test_a_failing_core_falls_back_to_the_open_method(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from reverse3d.reconstruction import silhouette
+
+    core = _FakeCore(fail=True)
+    monkeypatch.setattr(silhouette, "core_engine", lambda: core)
+    images, text = _scene(tmp_path)
+    result = visual_hull(images, text, tmp_path / "hull.ply", resolution=48, refinements=1)
+    assert core.calls == 1
+    assert result.engine == "reverse3d"

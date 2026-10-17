@@ -2,6 +2,18 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.11.0] — 2026-10-17
+
+### Reverse3D Core, el motor exclusivo
+- **Si está instalado `reverse3d-core`** (el motor propietario de Voxel Enterprise, incluido en reverse3d Studio), reverse3d lo usa automáticamente para fusionar las siluetas de los objetos. Las fotos que no coinciden con el resto pierden peso en vez de borrar el objeto. Sin él, se usa el método abierto, y si el motor falla también se vuelve a él.
+- `reverse3d doctor` informa del motor (`core`), y cada trabajo indica en `details.silhouette.engine` cuál se usó.
+
+### Capturas grandes y con primeros planos
+- **Los objetos comparan todas las fotos entre sí** (hasta 400). Antes, por encima de 150 fotos se pasaba a un emparejamiento secuencial que partía la captura: una de 153 fotos con primeros planos de la tapa ubicaba solo 58; ahora ubica 133.
+- **Cuatro veces menos puntos por foto (4 096)** cuando solo hay que ubicar las cámaras (objetos y personajes): emparejar 153 fotos pasó de casi una hora a 4 minutos en una RTX 3050 portátil.
+- **La talla por silueta escala con el número de fotos:** un punto se borra solo si lo dice una proporción clara (10 %) de las fotos que lo ven, no un número fijo. Con 130 fotos, tres recortes imperfectos ya no borran el objeto.
+- **Freno a la IA de profundidad:** si vaciar con la profundidad borraría más de un 35 % de lo que muestran las fotos, se descarta. Un hueco real, como el interior de un vaso, sí se talla.
+
 ## [0.10.0] — 2026-10-17
 
 ### Texturas fotográficas de alta definición

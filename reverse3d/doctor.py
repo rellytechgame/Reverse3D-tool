@@ -41,6 +41,16 @@ def _package_version(dist: str) -> str | None:
         return "installed"
 
 
+def core_status() -> dict[str, object]:
+    """Whether reverse3d-core, the proprietary reconstruction engine, is active."""
+    from reverse3d.reconstruction.silhouette import core_engine
+
+    core = core_engine()
+    if core is None:
+        return {"available": False, "hint": "Included in reverse3d Studio."}
+    return {"available": True, "version": str(getattr(core, "__version__", "?"))}
+
+
 def environment_report(settings: Settings, *, include_offline: bool = True) -> dict[str, object]:
     """Return a JSON-serialisable description of the runtime environment.
 
@@ -70,6 +80,8 @@ def environment_report(settings: Settings, *, include_offline: bool = True) -> d
         "reverse3d": __version__,
         "author": f"{AUTHOR} ({AUTHOR_URL})",
         "official_source": OFFICIAL_REPOSITORY,
+        # Voxel Enterprise's proprietary engine (bundled with reverse3d Studio).
+        "core": core_status(),
         "python": sys.version.split()[0],
         "platform": platform.platform(),
         "workspace": str(settings.workspace),
