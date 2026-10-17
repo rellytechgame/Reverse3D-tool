@@ -82,7 +82,10 @@ class FakeColmap:
                 args, 0, "", f"Registered images: {n}\nPoints: {n * self.points_per_image}"
             )
         elif command == "model_converter":
-            Path(opt("--output_path")).write_text("ply\n")
+            if opt("--output_type") == "TXT":
+                Path(opt("--output_path")).mkdir(parents=True, exist_ok=True)
+            else:
+                Path(opt("--output_path")).write_text("ply\n")
         return subprocess.CompletedProcess(args, 0, "", "")
 
 

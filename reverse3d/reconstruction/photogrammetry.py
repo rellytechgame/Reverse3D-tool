@@ -68,7 +68,15 @@ _MIN_SPARSE_POINTS = 1000
 _EXHAUSTIVE_LIMIT = 150
 
 # Names of the artifacts this pipeline creates; only these are removed on overwrite.
-_ARTIFACTS = ("database.db", "images", "sparse", "dense", "sparse_points.ply", "mesh.ply")
+_ARTIFACTS = (
+    "database.db",
+    "images",
+    "sparse",
+    "sparse_txt",
+    "dense",
+    "sparse_points.ply",
+    "mesh.ply",
+)
 
 
 @dataclass
@@ -122,6 +130,9 @@ class PhotogrammetryResult:
     sparse_points: int
     stages: list[StageTiming] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    #: the photos as COLMAP saw them, and the chosen model as text (silhouette carving).
+    images_dir: str | None = None
+    sparse_text_dir: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -394,6 +405,23 @@ class ColmapPipeline:
             ],
         )
         result.sparse_points_path = str(sparse_ply)
+        result.images_dir = str(staged)
+        text_dir = out / "sparse_txt"
+        text_dir.mkdir(parents=True, exist_ok=True)
+        self._stage(
+            result,
+            "model_converter_txt",
+            [
+                "model_converter",
+                "--input_path",
+                str(best),
+                "--output_path",
+                str(text_dir),
+                "--output_type",
+                "TXT",
+            ],
+        )
+        result.sparse_text_dir = str(text_dir)
 
         # 4. Dense reconstruction (MVS) — CUDA only
         run_dense = options.dense == "on" or (options.dense == "auto" and options.use_gpu)

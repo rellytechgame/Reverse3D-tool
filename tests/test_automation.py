@@ -442,7 +442,11 @@ def test_colmap_without_cuda_degrades_to_cpu(
         if args[0] == "mapper":
             (Path(args[args.index("--output_path") + 1]) / "0").mkdir()
         if args[0] == "model_converter":
-            Path(args[args.index("--output_path") + 1]).write_text("ply")
+            target = Path(args[args.index("--output_path") + 1])
+            if args[args.index("--output_type") + 1] == "TXT":
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.write_text("ply")
         return subprocess.CompletedProcess(args, 0, "", "Registered images: 6\nPoints: 6000")
 
     monkeypatch.setattr(pg, "run_command", fake)

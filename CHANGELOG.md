@@ -2,6 +2,19 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.6.0] — 2026-10-16
+
+### Objetos y personajes: reconstrucción por silueta (mucho más rápida y fiel)
+- **Nuevo método para objetos y personajes** (`reverse3d.reconstruction.silhouette`): COLMAP solo ubica las cámaras (sin la fase densa) y la forma se esculpe con las siluetas del objeto en todas las fotos (visual hull). Funciona con superficies lisas, blancas o brillantes (termos, botellas, jarrones), que antes salían como una masa abstracta porque el motor reconstruía la habitación en lugar del objeto.
+- **Mucho más rápido:** un set de 40 fotos de móvil pasa de cerca de 1 hora a unos 6 minutos en una GPU de 4 GB.
+- Pasos: el objeto está donde convergen los ejes de las cámaras; GrabCut alrededor de su proyección; tallado en vóxeles; 3 rondas en las que la silueta proyectada guía un nuevo recorte; se elimina el plano de la mesa (RANSAC con los puntos dispersos); marching cubes, suavizado de Taubin y el modelo queda de pie sobre su base.
+- Si el tallado falla, vuelve al método clásico (densa + Poisson).
+- COLMAP exporta también el modelo en texto (`sparse_txt`) y la carpeta de fotos usada.
+- Nueva dependencia: `scikit-image`.
+
+### Menos ruido y menos fotos perdidas
+- El análisis previo ya **no descarta fotos**: COLMAP ubica las cámaras mucho mejor (usa toda la escena). Sus avisos se ocultan si COLMAP ubica casi todas las fotos.
+
 ## [0.5.2] — 2026-10-16
 
 ### Perfiles de escena: de piezas a personajes, arquitectura y paisajes

@@ -24,7 +24,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import shutil
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -195,7 +194,11 @@ _MIN_GROUP = 8
 
 
 def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
-    from reverse3d.reconstruction.photogrammetry import PhotogrammetryOptions, run_photogrammetry
+    from reverse3d.reconstruction.photogrammetry import (
+        PhotogrammetryOptions,
+        PhotogrammetryResult,
+        run_photogrammetry,
+    )
     from reverse3d.scenes import SCENE_LABEL_ES, SCENE_PRESETS, detect_scene
     from reverse3d.vision.feature_matcher import analyze_image_set
 
@@ -219,21 +222,9 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
     analysis = run.step("analyze", lambda: analyze_image_set(src, run.settings))
     run.details["analysis"] = analysis.to_dict()
     if not analysis.suitable_for_photogrammetry and analysis.connected_images >= _MIN_GROUP:
-        # Part of the set overlaps well: reconstruct from that group only.
-        dropped = set(analysis.weak_links)
-        group_dir = run.out / "photos_used"
-        group_dir.mkdir(parents=True, exist_ok=True)
-        for image in sorted(src.iterdir()):
-            if image.is_file() and image.name not in dropped and not image.name.startswith("."):
-                target = group_dir / image.name
-                if not target.exists():
-                    shutil.copy2(image, target)
-        run.warnings.append(
-            f"Used the {analysis.connected_images} photos that overlap; skipped "
-            f"{len(dropped)} that do not match the rest."
-        )
-        run.details["photos_used"] = analysis.connected_images
-        src = group_dir
+        # COLMAP places cameras far better than this quick check (it often uses
+        # the whole room), so every photo goes in; the check is only advice.
+        run.warnings.extend(analysis.recommendations)
     elif not analysis.suitable_for_photogrammetry:
         if not opt.force_analysis:
             raise CaptureQualityError(
@@ -244,26 +235,62 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
         run.warnings.extend(analysis.recommendations)
 
     quality = opt.quality or preset.quality or profile_values(run.settings).photo_quality
-    photo = run.step(
-        "photogrammetry",
-        lambda: run_photogrammetry(
+    # Objects and characters: COLMAP only places the cameras (fast, no dense stage)
+    # and the shape is carved from the silhouettes, which also works on plain,
+    # white or glossy surfaces. Open scenes keep classic dense reconstruction.
+    silhouette = scene in ("object", "character")
+
+    def photogrammetry(classic: bool) -> PhotogrammetryResult:
+        return run_photogrammetry(
             src,
             run.out / "reconstruction",
             run.settings,
             PhotogrammetryOptions(
                 quality=quality,  # type: ignore[arg-type]
                 matcher=preset.matcher,
+                dense="auto" if classic else "off",
                 use_gpu=wants_gpu(run.settings),
+                build_mesh=classic,
                 poisson_depth=preset.poisson_depth,
                 density_quantile=preset.density_quantile,
             ),
-            overwrite=opt.overwrite,
-        ),
-    )
+            overwrite=opt.overwrite or not classic,
+        )
+
+    photo = run.step("photogrammetry", lambda: photogrammetry(classic=not silhouette))
+    mesh_path: str | None = photo.mesh_path
+    upright = False
+    if silhouette:
+        from reverse3d.reconstruction.silhouette import visual_hull
+
+        try:
+            hull = run.step(
+                "silhouette",
+                lambda: visual_hull(
+                    Path(photo.images_dir or ""),
+                    Path(photo.sparse_text_dir or ""),
+                    run.out / "reconstruction" / "object_hull.ply",
+                ),
+            )
+        except ProcessingError as exc:
+            logger.info("Silhouette carving failed (%s); using dense reconstruction", exc.message)
+            run.warnings.append(
+                f"Silhouette carving failed ({exc.message}); used dense reconstruction."
+            )
+            photo = run.step("photogrammetry", lambda: photogrammetry(classic=True))
+            mesh_path = photo.mesh_path
+        else:
+            run.details["silhouette"] = hull.to_dict()
+            mesh_path = hull.mesh_path
+            upright = True
+    if photo.registered_images >= 0.9 * max(photo.total_images, 1):
+        # COLMAP placed (almost) every photo: the quick pre-check's capture advice
+        # would only confuse.
+        run.warnings[:] = [w for w in run.warnings if w not in analysis.recommendations]
     run.warnings.extend(photo.warnings)
     run.details["photogrammetry"] = photo.to_dict()
     run.outputs["point_cloud"] = photo.dense_points_path or photo.sparse_points_path
-    if not photo.mesh_path:
+    if not mesh_path:
         raise ProcessingError(
             "Point cloud created but no mesh could be built.",
             hint='Install the meshing extra: pip install "reverse3d[recon]" (Python ≤ 3.12).',
@@ -271,11 +298,12 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
     model = run.out / "model.stl"
     _clean(
         run,
-        Path(photo.mesh_path),
+        Path(mesh_path),
         model,
         scale=opt.scale,
         overwrite=opt.overwrite,
         fill_holes=preset.fill_holes,
+        align="none" if upright else "obb",
         keep_largest=preset.keep_largest,
         repair=opt.repair,
     )
