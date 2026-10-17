@@ -298,6 +298,9 @@ def _support_plane(
     return None
 
 
+# A re-cut may add what the first boxes cropped (a base: well under +60 %), not more.
+_MAX_GROWTH = 1.6
+
 # Base completion: the typical cross-section is measured in this band of the
 # object's height, and a complete one is searched for no higher than this.
 _BASE_TYPICAL = (0.2, 0.6)
@@ -679,6 +682,20 @@ def visual_hull(
 
     n = resolution
 
+    def project_all(grid: np.ndarray) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        """Pixel of every voxel in every photo (int16, see below) and whether it is inside."""
+        projections = []
+        for (small, scale), view in zip(images, views, strict=True):
+            uv, z = _project(grid, view)
+            # int16 pixel coordinates (work images are at most 640 px): 4x less memory
+            # than int64 for millions of voxels times hundreds of photos.
+            u = np.clip(np.round(uv[:, 0] * scale), -1, _PIXEL_MAX).astype(np.int16)
+            v = np.clip(np.round(uv[:, 1] * scale), -1, _PIXEL_MAX).astype(np.int16)
+            inside = (z > 0) & (u >= 0) & (v >= 0) & (u < small.shape[1]) & (v < small.shape[0])
+            projections.append((u, v, inside))
+
+        return projections
+
     def frame(
         center: np.ndarray,
         radius: float,
@@ -715,16 +732,7 @@ def visual_hull(
         axis = np.linspace(-radius, radius, n)
         gx, gy, gz = np.meshgrid(axis, axis, axis, indexing="ij")
         grid = np.stack([gx.ravel(), gy.ravel(), gz.ravel()], axis=1) + center
-        projections = []
-        for (small, scale), view in zip(images, views, strict=True):
-            uv, z = _project(grid, view)
-            # int16 pixel coordinates (work images are at most 640 px): 4x less memory
-            # than int64 for millions of voxels times hundreds of photos.
-            u = np.clip(np.round(uv[:, 0] * scale), -1, _PIXEL_MAX).astype(np.int16)
-            v = np.clip(np.round(uv[:, 1] * scale), -1, _PIXEL_MAX).astype(np.int16)
-            inside = (z > 0) & (u >= 0) & (v >= 0) & (u < small.shape[1]) & (v < small.shape[0])
-            projections.append((u, v, inside))
-
+        projections = project_all(grid)
         return masks, grid, projections
 
     masks, grid, projections = frame(center, radius)
@@ -781,32 +789,46 @@ def visual_hull(
         return (seen >= 3) & (votes >= seen - allowed)
 
     keep = carve(masks, 2)
+
     # The cameras' convergence point is biased when many photos are close-ups of one
     # part (a cap): if the carved object reaches the edge of the cube, re-centre the
     # cube on it, enlarge it and start again (masks included, their box depends on it).
-    for _ in range(2):
-        cube = keep.reshape(n, n, n)
-        if not (
+    def touches_edge(mask: np.ndarray) -> bool:
+        cube = mask.reshape(n, n, n)
+        return bool(
             cube[0].any()
             or cube[-1].any()
             or cube[:, 0].any()
             or cube[:, -1].any()
             or cube[:, :, 0].any()
             or cube[:, :, -1].any()
-        ):
-            break
+        )
+
+    if touches_edge(keep):
+        # Re-centred once; kept only if the object then fits (a cut-out that leaked
+        # into the table or the room would keep growing instead).
+        saved = (center, radius, masks, grid, keep)
         occupied = grid[keep]
         center = (occupied.min(axis=0) + occupied.max(axis=0)) / 2
         radius *= 1.5
-        logger.info("Object reaches the carving volume's edge: re-centred and enlarged")
         projections.clear()  # free the previous projections first (gigabytes)
         masks, grid, projections = frame(center, radius)
         keep = carve(masks, 2)
+        if touches_edge(keep) or int(keep.sum()) > _MAX_GROWTH * 3.375 * int(saved[4].sum()):
+            logger.info("Re-centring did not help; keeping the first carving volume")
+            center, radius, masks, grid, keep = saved
+            projections.clear()
+            projections = project_all(grid)
+        else:
+            logger.info("Object reached the carving volume's edge: re-centred and enlarged")
     # The first boxes come from the cameras' convergence point and can crop the object
     # (its base, when many photos are close-ups of the top). Re-cut every photo inside
-    # a box around where the carved object projects, with margin, while it grows.
+    # a box around where the carved object projects, with margin, while it grows -
+    # but only by what a cropped base can explain: a cut-out that leaks into the
+    # table or the room grows far more, and is undone.
     for _ in range(2):
         before = int(keep.sum())
+        saved_masks, saved_keep = masks, keep
         boxes = [
             _box_around(keep & inside, u, v, small.shape)
             for (u, v, inside), (small, _) in zip(projections, images, strict=True)
@@ -814,9 +836,16 @@ def visual_hull(
         projections.clear()  # free the previous projections first (gigabytes)
         masks, grid, projections = frame(center, radius, boxes)
         keep = carve(masks, 2)
-        if int(keep.sum()) < 1.05 * before:
+        after = int(keep.sum())
+        if after > _MAX_GROWTH * before or (touches_edge(keep) and not touches_edge(saved_keep)):
+            logger.info(
+                "Photo boxes leaked into the background (%d -> %d voxels): undone", before, after
+            )
+            masks, keep = saved_masks, saved_keep
             break
-        logger.info("Object grew to %d voxels with photo boxes around it", int(keep.sum()))
+        if after < 1.05 * before:
+            break
+        logger.info("Object grew to %d voxels with photo boxes around it", after)
     # The AI segmenter is only loaded (or downloaded) once the photos proved usable.
     ai = segmenter() if segmenter is not None else None
     if ai is not None:

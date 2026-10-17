@@ -2,6 +2,12 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.11.3] — 2026-10-17
+
+### Corregido: resultados distintos con las mismas fotos
+- Con las mismas 153 fotos, una corrida salía bien y otra producía una masa deforme: COLMAP ubicaba las cámaras algo distinto, el primer tallado tocaba el borde y el **recentrado** y el **crecimiento de recuadros** (0.11.1) se descontrolaban, tragándose la mesa y el fondo (de ~200 000 a 330 000 vóxeles).
+- Ahora el recentrado se hace una sola vez y solo se acepta si el objeto deja de tocar el borde, y cada ronda de recuadros solo se acepta si el objeto crece como mucho un 60 % (una base recortada lo explica; tragarse el fondo, no). Si no, se deshace.
+
 ## [0.11.2] — 2026-10-17
 
 ### Más rápido
