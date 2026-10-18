@@ -653,6 +653,14 @@ def colorize_from_photos(
 _DEPTH_WAIT_S = 3600.0
 
 
+def _debug_mesh(mesh: trimesh.Trimesh, stage: str) -> None:
+    """With R3D_DEBUG_DIR set, keep the mesh after each stage (diagnostics)."""
+    folder = os.environ.get("R3D_DEBUG_DIR")
+    if folder:
+        Path(folder).mkdir(parents=True, exist_ok=True)
+        mesh.export(Path(folder) / f"{stage}.ply")
+
+
 def read_depth_map(path: Path) -> np.ndarray:
     """A COLMAP depth map (``width&height&channels&`` header, column-major float32)."""
     raw = path.read_bytes()
@@ -1047,6 +1055,7 @@ def visual_hull(
     # closed: make the normals point away from the object's centre.
     if _outward_share(mesh) < 0.5:
         mesh.invert()
+    _debug_mesh(mesh, "1_hull")
     depth_fitted = 0
     fit_depth = getattr(core, "fit_depth", None) if core_cameras is not None else None
     if fit_depth is not None and depth_workspace is not None and _depth_ready(depth_workspace):
@@ -1060,6 +1069,7 @@ def visual_hull(
                 mesh, depth_cams, depth_maps, 2 * radius / (n - 1), priors=priors
             )
             depth_fitted = int(stats.get("fitted", 0))
+            _debug_mesh(mesh, "2_depth")
             logger.info(
                 "Stereo depth fitted %d vertices (AI depth calibrated on %d photos)",
                 depth_fitted,
@@ -1076,6 +1086,7 @@ def visual_hull(
                 mesh, core_cameras, [small for small, _ in images], 0.5 * (2 * radius / (n - 1))
             )
             refined_vertices = int(stats.get("moved", 0))
+            _debug_mesh(mesh, "3_photo")
             logger.info("Photo consistency refined %d vertices", refined_vertices)
         except Exception as exc:  # never fail a job because of the optional engine
             logger.warning("reverse3d-core refinement failed (%s); keeping the hull", exc)
@@ -1088,6 +1099,7 @@ def visual_hull(
             mesh, fidelity = verify(
                 mesh, core_cameras, [m > 0 for m in masks], 2 * radius / (n - 1)
             )
+            _debug_mesh(mesh, "4_fidelity")
             logger.info(
                 "Fidelity agent: silhouettes agree %.1f%% -> %.1f%%",
                 100 * float(fidelity["iou_before"]),
