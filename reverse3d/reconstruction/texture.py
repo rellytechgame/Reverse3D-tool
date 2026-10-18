@@ -23,7 +23,7 @@ import numpy as np
 import trimesh
 
 from reverse3d.errors import DependencyMissingError, ProcessingError
-from reverse3d.reconstruction.silhouette import _project, _View, read_colmap_text
+from reverse3d.reconstruction.silhouette import _project, _View, core_engine, read_colmap_text
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +129,44 @@ def _bake(
     return colours, seen
 
 
+def _core_texture(
+    verts: np.ndarray,
+    faces: np.ndarray,
+    uvs: np.ndarray,
+    views: list[_View],
+    images: list[tuple[np.ndarray, float]],
+    size: int,
+) -> tuple[np.ndarray, dict[str, Any]] | None:
+    """The texture from reverse3d-core (cameras aligned by colour, one sharp photo
+    per face, no seams), or None to use the open method."""
+    core = core_engine()
+    if core is None or not hasattr(core, "texture_mesh"):
+        return None
+    cameras = [
+        core.Camera(
+            view.name,
+            img.shape[1],
+            img.shape[0],
+            view.camera.fx * scale,
+            view.camera.fy * scale,
+            view.camera.cx * scale,
+            view.camera.cy * scale,
+            view.camera.k,
+            view.rotation,
+            view.translation,
+        )
+        for (img, scale), view in zip(images, views, strict=True)
+    ]
+    try:
+        texture, stats = core.texture_mesh(
+            verts, faces, uvs, cameras, [img for img, _ in images], size=size
+        )
+    except Exception as exc:  # a licence or engine problem: the open method still works
+        logger.info("Core texture unavailable (%s); using the open method.", exc)
+        return None
+    return np.asarray(texture, np.uint8), dict(stats)
+
+
 def bake_texture(
     mesh: trimesh.Trimesh,
     image_dir: Path,
@@ -146,7 +184,6 @@ def bake_texture(
     Raises:
         ProcessingError: photos cannot be read or nothing could be baked.
     """
-    from PIL import Image
 
     views, _ = read_colmap_text(model_text_dir)
     images: list[tuple[np.ndarray, float]] = []
@@ -167,12 +204,17 @@ def bake_texture(
     verts_world = verts_model
     if to_world is not None:
         verts_world = trimesh.transform_points(verts_model, to_world)
+    core = _core_texture(verts_world, faces, uvs, views, images, size)
+    if core is not None:
+        texture, stats = core
+        return _textured(verts_model, faces, uvs, texture, len(views), stats)
+
     texel_rc, points, normals = _texel_points(verts_world, faces, uvs, size)
     colours, seen = _bake(points, normals, views, images)
     if not seen.any():
         raise ProcessingError("No photo sees the model: the texture could not be baked.")
 
-    texture: np.ndarray = np.zeros((size, size, 3), np.uint8)
+    texture = np.zeros((size, size, 3), np.uint8)
     covered = np.zeros((size, size), np.uint8)
     fill = np.median(colours[seen], axis=0)
     colours[~seen] = fill
@@ -184,12 +226,33 @@ def bake_texture(
     texture = cv2.medianBlur(texture, 3)
     # Bleed colours into the gutters between UV islands (no seams when filtered).
     texture = cv2.inpaint(texture, 255 - covered, 3, cv2.INPAINT_TELEA) if size <= 2048 else texture
+    return _textured(verts_model, faces, uvs, texture, len(views), None)
 
+
+def _textured(
+    verts: np.ndarray,
+    faces: np.ndarray,
+    uvs: np.ndarray,
+    texture: np.ndarray,
+    photos: int,
+    core_stats: dict[str, Any] | None,
+) -> trimesh.Trimesh:
+    from PIL import Image
+
+    size = texture.shape[0]
     material = trimesh.visual.material.PBRMaterial(
         baseColorTexture=Image.fromarray(texture), metallicFactor=0.0, roughnessFactor=0.7
     )
-    textured = trimesh.Trimesh(verts_model, faces, process=False)
+    textured = trimesh.Trimesh(verts, faces, process=False)
     visual: Any = trimesh.visual.TextureVisuals(uv=uvs, material=material)
     textured.visual = visual
-    logger.info("Texture baked: %dx%d from %d photos", size, size, len(views))
+    if core_stats is not None:
+        textured.metadata["core_texture"] = core_stats
+    logger.info(
+        "Texture baked: %dx%d from %d photos (%s)",
+        size,
+        size,
+        photos,
+        "reverse3d-core" if core_stats else "open method",
+    )
     return textured

@@ -2,6 +2,12 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.15.0] — 2026-10-18
+
+### Textura de alta fidelidad (Reverse3D Core 0.6)
+- Con el Core 0.6, la textura de `model.glb` sale **más nítida y sin costuras**: corrige pequeños desajustes de las cámaras y de exposición entre fotos, y descarta las fotos movidas. El informe lo detalla en `details.texture` (`engine: reverse3d-core`).
+- Sin el Core (o sin licencia), la herramienta usa su método abierto de siempre.
+
 ## [0.14.0] — 2026-10-18
 
 ### Tamaño real

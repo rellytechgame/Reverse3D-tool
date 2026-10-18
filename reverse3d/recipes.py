@@ -376,6 +376,10 @@ def _texture(run: _Run, model: Path, photo: Any, to_world: list[list[float]], sc
         _export_glb(textured, glb)
         run.outputs["model_glb"] = str(glb)
         run.details["texture"] = {"size": 2048, "faces": len(textured.faces)}
+        core_stats = textured.metadata.get("core_texture")
+        if core_stats:
+            run.details["texture"]["engine"] = "reverse3d-core"
+            run.details["texture"].update(core_stats)
     except Exception as exc:  # the texture is a bonus: never fail the model for it
         logger.info("Texture skipped: %s", exc)
 
