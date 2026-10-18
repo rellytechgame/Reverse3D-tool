@@ -2,6 +2,12 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.12.0] — 2026-10-18
+
+### Más detalle con Reverse3D Core 0.3
+- **Refinamiento por consistencia de fotos:** con el Core 0.3 instalado (incluido en reverse3d Studio), tras tallar la silueta el motor ajusta la superficie allí donde las fotos coinciden, y recupera concavidades que ninguna silueta muestra. En una prueba con una ranura invisible a las siluetas, el error dentro de la ranura bajó un 41 %. En superficies sin textura, o con bordes de textura que podrían engañar (logotipos, brillos), no mueve nada. Cada trabajo indica cuántos vértices se refinaron (`details.silhouette.refined_vertices`).
+- Con un Core anterior, o sin Core, el resultado es el de siempre.
+
 ## [0.11.3] — 2026-10-17
 
 ### Corregido: resultados distintos con las mismas fotos

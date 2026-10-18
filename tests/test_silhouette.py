@@ -421,3 +421,22 @@ def test_legs_stay_legs_when_the_base_is_completed() -> None:
     out = _complete_base(volume, grid, np.array([0.0, 0.0, 1.0]), 0.0, voxel).reshape(-1) > 0.5
     between = (np.abs(x) < 0.4) & (np.abs(y) < 0.4) & (z < 0.5)
     assert not out[between].any()
+
+
+class _RefiningCore(_FakeCore):
+    """A fake reverse3d-core >= 0.3 that also refines the mesh by photo consistency."""
+
+    def refine_mesh(self, mesh, cameras, images, step):  # type: ignore[no-untyped-def]
+        assert len(cameras) == len(images) and step > 0
+        return mesh, {"moved": 42, "vertices": len(mesh.vertices), "mean_offset": 0.0}
+
+
+def test_the_core_refines_the_hull_by_photo_consistency(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from reverse3d.reconstruction import silhouette
+
+    monkeypatch.setattr(silhouette, "core_engine", lambda: _RefiningCore())
+    images, text = _scene(tmp_path)
+    result = visual_hull(images, text, tmp_path / "hull.ply", resolution=48, refinements=1)
+    assert result.refined_vertices == 42

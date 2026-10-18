@@ -92,6 +92,8 @@ class HullResult:
     engine: str = "reverse3d"
     #: photos reverse3d-core judged inconsistent with the rest (moved object, bad cut-out)
     unreliable: list[str] = field(default_factory=list)
+    #: vertices reverse3d-core moved by photo consistency (0 without it)
+    refined_vertices: int = 0
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -963,6 +965,18 @@ def visual_hull(
     mesh = trimesh.Trimesh(verts, faces, process=True)
     trimesh.smoothing.filter_taubin(mesh, lamb=0.5, nu=-0.53, iterations=15)
     mesh.fix_normals()
+    refined_vertices = 0
+    refine_mesh = getattr(core, "refine_mesh", None) if core_cameras is not None else None
+    if refine_mesh is not None:
+        # reverse3d-core >= 0.3: photo consistency carves what silhouettes cannot see.
+        try:
+            mesh, stats = refine_mesh(
+                mesh, core_cameras, [small for small, _ in images], 0.5 * (2 * radius / (n - 1))
+            )
+            refined_vertices = int(stats.get("moved", 0))
+            logger.info("Photo consistency refined %d vertices", refined_vertices)
+        except Exception as exc:  # never fail a job because of the optional engine
+            logger.warning("reverse3d-core refinement failed (%s); keeping the hull", exc)
     # Real colours from the photos (kept by PLY export; the model gets them as GLB).
     mesh.visual = trimesh.visual.ColorVisuals(
         mesh, vertex_colors=_vertex_colors(mesh, views, images, masks)
@@ -1001,4 +1015,5 @@ def visual_hull(
         ]
         if core_weights is not None and engine != "reverse3d"
         else [],
+        refined_vertices,
     )
