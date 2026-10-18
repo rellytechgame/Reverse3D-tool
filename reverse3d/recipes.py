@@ -384,6 +384,13 @@ def _texture(run: _Run, model: Path, photo: Any, to_world: list[list[float]], sc
         logger.info("Texture skipped: %s", exc)
 
 
+def _core_fits_depth() -> bool:
+    from reverse3d.reconstruction.silhouette import core_engine
+
+    core = core_engine()
+    return core is not None and hasattr(core, "fit_depth")
+
+
 def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
     from reverse3d.reconstruction.photogrammetry import (
         PhotogrammetryOptions,
@@ -458,6 +465,9 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
                 # Silhouette objects only need the cameras: fewer features keep
                 # exhaustive matching of a few hundred photos fast on any GPU.
                 max_features=None if classic else _CAMERA_FEATURES,
+                # Silhouette objects with the Core: stereo depth maps let it
+                # recover what silhouettes cannot see (grooves, reliefs).
+                depth_maps=not classic and _core_fits_depth(),
             ),
             overwrite=opt.overwrite or not classic or features != "sift",
         )
@@ -516,6 +526,7 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
                     run.out / "reconstruction" / "object_hull.ply",
                     segmenter=load_segmenter,
                     depth=load_depth,
+                    depth_workspace=Path(photo.depth_workspace) if photo.depth_workspace else None,
                 ),
             )
         except ProcessingError as exc:

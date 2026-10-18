@@ -50,3 +50,14 @@ def test_the_real_height_turns_the_model_into_millimetres(tmp_path: Path) -> Non
     other = _Run(recipe="photos_to_model", settings=Settings(workspace=tmp_path), out=tmp_path)
     assert _real_scale(other, path, RecipeOptions(real_height_mm=300.0), upright=False) == 1.0
     assert other.warnings
+
+
+def test_colmap_depth_maps_are_read_in_image_layout(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    import numpy as np
+
+    from reverse3d.reconstruction.silhouette import read_depth_map
+
+    depth = np.arange(12, dtype=np.float32).reshape(3, 4)  # 3 rows, 4 columns
+    path = tmp_path / "a.jpg.geometric.bin"
+    path.write_bytes(b"4&3&1&" + depth.tobytes())  # COLMAP: rows one after another
+    assert np.array_equal(read_depth_map(path), depth)

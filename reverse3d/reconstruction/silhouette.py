@@ -98,6 +98,10 @@ class HullResult:
     quality: dict[str, object] = field(default_factory=dict)
     #: confidence map (red -> green vertex colours), same coordinates as the model
     quality_path: str | None = None
+    #: vertices reverse3d-core placed on the stereo depth maps (0 without them)
+    depth_fitted: int = 0
+    #: fidelity agent: how well the model's silhouettes match the photos
+    fidelity: dict[str, object] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -645,6 +649,69 @@ def colorize_from_photos(
     return output_path
 
 
+#: longest wait for the background depth maps once the hull is ready
+_DEPTH_WAIT_S = 3600.0
+
+
+def read_depth_map(path: Path) -> np.ndarray:
+    """A COLMAP depth map (``width&height&channels&`` header, column-major float32)."""
+    raw = path.read_bytes()
+    header_end = 0
+    for _ in range(3):
+        header_end = raw.index(b"&", header_end) + 1
+    width, height, channels = (int(v) for v in raw[: header_end - 1].split(b"&"))
+    data = np.frombuffer(raw, np.float32, offset=header_end)
+    return np.asarray(data.reshape((width, height, channels), order="F")[..., 0].T)
+
+
+def _depth_inputs(core: Any, workspace: Path) -> tuple[list[Any], list[np.ndarray | None]]:
+    """Undistorted cameras and their geometric depth maps from a COLMAP workspace."""
+    views, _ = read_colmap_text(workspace / "sparse_txt")
+    cameras: list[Any] = []
+    depths: list[np.ndarray | None] = []
+    for view in views:
+        file = workspace / "stereo" / "depth_maps" / f"{view.name}.geometric.bin"
+        cam = view.camera
+        cameras.append(
+            core.Camera(
+                view.name,
+                cam.width,
+                cam.height,
+                cam.fx,
+                cam.fy,
+                cam.cx,
+                cam.cy,
+                0.0,
+                view.rotation,
+                view.translation,
+            )
+        )
+        depths.append(read_depth_map(file) if file.is_file() else None)
+    return cameras, depths
+
+
+def _depth_ready(workspace: Path) -> bool:
+    from reverse3d.reconstruction.photogrammetry import wait_depth_maps
+
+    return wait_depth_maps(workspace, timeout=_DEPTH_WAIT_S)
+
+
+def _depth_priors(
+    estimator: Callable[[np.ndarray], np.ndarray] | None,
+    workspace: Path,
+    cameras: list[Any],
+    depths: list[np.ndarray | None],
+) -> list[np.ndarray | None] | None:
+    """AI depth (relative disparity) of every undistorted photo that has stereo depth."""
+    if estimator is None:
+        return None
+    priors: list[np.ndarray | None] = []
+    for cam, depth in zip(cameras, depths, strict=True):
+        bgr = cv2.imread(str(workspace / "images" / cam.name)) if depth is not None else None
+        priors.append(None if bgr is None else estimator(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)))
+    return priors
+
+
 def visual_hull(
     image_dir: Path,
     model_text_dir: Path,
@@ -654,6 +721,7 @@ def visual_hull(
     refinements: int = 3,
     segmenter: Callable[[], ObjectSegmenter | None] | None = None,
     depth: Callable[[], Callable[[np.ndarray], np.ndarray] | None] | None = None,
+    depth_workspace: Path | None = None,
 ) -> HullResult:
     """Carve the object seen by every photo; writes a watertight, upright mesh.
 
@@ -979,6 +1047,26 @@ def visual_hull(
     # closed: make the normals point away from the object's centre.
     if _outward_share(mesh) < 0.5:
         mesh.invert()
+    depth_fitted = 0
+    fit_depth = getattr(core, "fit_depth", None) if core_cameras is not None else None
+    if fit_depth is not None and depth_workspace is not None and _depth_ready(depth_workspace):
+        # reverse3d-core >= 0.7: stereo depth maps recover grooves and reliefs.
+        try:
+            depth_cams, depth_maps = _depth_inputs(core, depth_workspace)
+            # Local AI depth fills what stereo misses on plain or glossy parts;
+            # the Core calibrates it per photo against that photo's stereo.
+            priors = _depth_priors(estimator, depth_workspace, depth_cams, depth_maps)
+            mesh, stats = fit_depth(
+                mesh, depth_cams, depth_maps, 2 * radius / (n - 1), priors=priors
+            )
+            depth_fitted = int(stats.get("fitted", 0))
+            logger.info(
+                "Stereo depth fitted %d vertices (AI depth calibrated on %d photos)",
+                depth_fitted,
+                int(stats.get("priors_used", 0)),
+            )
+        except Exception as exc:  # never fail a job because of the optional engine
+            logger.warning("reverse3d-core depth fit failed (%s); keeping the hull", exc)
     refined_vertices = 0
     refine_mesh = getattr(core, "refine_mesh", None) if core_cameras is not None else None
     if refine_mesh is not None:
@@ -991,6 +1079,22 @@ def visual_hull(
             logger.info("Photo consistency refined %d vertices", refined_vertices)
         except Exception as exc:  # never fail a job because of the optional engine
             logger.warning("reverse3d-core refinement failed (%s); keeping the hull", exc)
+    fidelity: dict[str, Any] = {}
+    verify = getattr(core, "verify_fidelity", None) if core_cameras is not None else None
+    if verify is not None:
+        # reverse3d-core >= 0.7: the fidelity agent renders the model from every
+        # photo, compares it with what the AI segmenter sees and corrects it.
+        try:
+            mesh, fidelity = verify(
+                mesh, core_cameras, [m > 0 for m in masks], 2 * radius / (n - 1)
+            )
+            logger.info(
+                "Fidelity agent: silhouettes agree %.1f%% -> %.1f%%",
+                100 * float(fidelity["iou_before"]),
+                100 * float(fidelity["iou_after"]),
+            )
+        except Exception as exc:  # never fail a job because of the optional engine
+            logger.warning("reverse3d-core fidelity agent failed (%s)", exc)
     # Real colours from the photos (kept by PLY export; the model gets them as GLB).
     mesh.visual = trimesh.visual.ColorVisuals(
         mesh, vertex_colors=_vertex_colors(mesh, views, images, masks)
@@ -1049,4 +1153,6 @@ def visual_hull(
         refined_vertices,
         quality,
         quality_path,
+        depth_fitted,
+        fidelity,
     )

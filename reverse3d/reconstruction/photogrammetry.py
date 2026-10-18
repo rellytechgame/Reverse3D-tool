@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 import re
 import shutil
+import threading
 import time
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
@@ -58,6 +59,12 @@ _PRESETS: dict[str, dict[str, int]] = {
     "medium": {"max_image_size": 1600, "max_features": 8192, "poisson_depth": 9},
     "high": {"max_image_size": 3200, "max_features": 16384, "poisson_depth": 10},
 }
+
+# Depth maps for silhouette objects: enough detail for a fit at voxel scale,
+# fast, and within a 4 GB GPU. Fewer source photos per depth map halve the time.
+_DEPTH_IMAGE_SIZE = 1000
+_DEPTH_REFERENCES = 48  # depth maps computed (spread over the capture)
+_DEPTH_SOURCES = 8  # nearest photos each depth map is matched against
 
 # Below these, the sparse model is too thin for a usable surface: stop before the
 # (slow) dense stage so the caller can fall back to something better.
@@ -100,6 +107,9 @@ class PhotogrammetryOptions:
     #: SIFT features per photo; None uses the quality preset. Placing cameras
     #: alone (silhouette objects) needs far fewer than a dense surface.
     max_features: int | None = None
+    #: PatchMatch depth maps only (no fusion), when dense is off: reverse3d-core
+    #: fits the silhouette hull to them (needs CUDA COLMAP and use_gpu).
+    depth_maps: bool = False
 
     def validate(self) -> None:
         if self.quality not in _PRESETS:
@@ -139,9 +149,80 @@ class PhotogrammetryResult:
     #: the photos as COLMAP saw them, and the chosen model as text (silhouette carving).
     images_dir: str | None = None
     sparse_text_dir: str | None = None
+    #: undistorted workspace with PatchMatch depth maps (silhouette objects + GPU).
+    depth_workspace: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
+
+
+class _DepthJob:
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.error: Exception | None = None
+
+
+_DEPTH_JOBS: dict[str, _DepthJob] = {}
+
+
+def wait_depth_maps(workspace: str | Path, timeout: float | None = None) -> bool:
+    """Wait for the depth maps PatchMatch is computing in the background.
+
+    True when they are ready; False when they failed or took too long (the
+    caller then keeps the silhouette shape).
+    """
+    job = _DEPTH_JOBS.get(str(workspace))
+    if job is None:
+        return Path(workspace, "stereo", "depth_maps").is_dir()
+    if not job.done.wait(timeout):
+        logger.warning("Depth maps still running after %ss: skipped", timeout)
+        return False
+    _DEPTH_JOBS.pop(str(workspace), None)
+    if job.error is not None:
+        logger.warning("Depth maps failed (%s): the shape comes from silhouettes", job.error)
+        return False
+    return True
+
+
+def _depth_plan(images_txt: Path, references: int, sources: int) -> str:
+    """patch-match.cfg for a spread subset of photos with explicit neighbours."""
+    import numpy as np
+
+    names: list[str] = []
+    centers: list[np.ndarray] = []
+    lines = [ln for ln in images_txt.read_text().splitlines() if ln and not ln.startswith("#")]
+    for line in lines[::2]:  # each image: a pose line, then a line of 2D points
+        f = line.split()
+        if len(f) < 10:
+            continue
+        qw, qx, qy, qz, tx, ty, tz = (float(v) for v in f[1:8])
+        rot = np.array(
+            [
+                [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)],
+                [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw)],
+                [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)],
+            ]
+        )
+        names.append(" ".join(f[9:]))
+        centers.append(-rot.T @ np.array([tx, ty, tz]))
+    if len(names) <= references:
+        return ""
+    pts = np.array(centers)
+    # Farthest-point sampling: references spread evenly around the object.
+    chosen = [0]
+    dist = np.linalg.norm(pts - pts[0], axis=1)
+    while len(chosen) < references:
+        nxt = int(np.argmax(dist))
+        chosen.append(nxt)
+        dist = np.minimum(dist, np.linalg.norm(pts - pts[nxt], axis=1))
+    chosen.sort()
+    sub = pts[chosen]
+    out = []
+    for i, idx in enumerate(chosen):
+        near = np.argsort(np.linalg.norm(sub - sub[i], axis=1))[1 : sources + 1]
+        out.append(names[idx])
+        out.append(", ".join(names[chosen[j]] for j in near))
+    return "\n".join(out) + "\n"
 
 
 class ColmapPipeline:
@@ -476,6 +557,13 @@ class ColmapPipeline:
                 result.warnings.append(f"Dense stage skipped ({exc.message}); using sparse cloud.")
         elif options.dense == "auto":
             result.warnings.append("Dense MVS skipped (requires use_gpu=true and CUDA COLMAP).")
+        elif options.depth_maps and options.use_gpu:
+            try:
+                result.depth_workspace = str(self._depth_maps(result, staged, best, out))
+            except ExternalToolError as exc:
+                result.warnings.append(
+                    f"Depth maps skipped ({exc.message}): the shape comes from silhouettes only."
+                )
 
         # 5. Surface
         if options.build_mesh:
@@ -499,6 +587,74 @@ class ColmapPipeline:
             "Photogrammetry done: %d/%d images registered", result.registered_images, len(images)
         )
         return result
+
+    def _depth_maps(
+        self, result: PhotogrammetryResult, staged: Path, model: Path, out: Path
+    ) -> Path:
+        """Undistorted photos and geometric PatchMatch depth maps (no fusion)."""
+        dense = out / "depth"
+        self._stage(
+            result,
+            "image_undistorter",
+            [
+                "image_undistorter",
+                "--image_path",
+                str(staged),
+                "--input_path",
+                str(model),
+                "--output_path",
+                str(dense),
+                "--output_type",
+                "COLMAP",
+                "--max_image_size",
+                str(_DEPTH_IMAGE_SIZE),
+            ],
+        )
+        text = dense / "sparse_txt"
+        text.mkdir(parents=True, exist_ok=True)
+        self._stage(
+            result,
+            "model_converter_depth",
+            [
+                "model_converter",
+                "--input_path",
+                str(dense / "sparse"),
+                "--output_path",
+                str(text),
+                "--output_type",
+                "TXT",
+            ],
+        )
+        # A subset of reference photos, each matched against its nearest
+        # neighbours in the subset: geometric consistency still has every depth
+        # map it needs, and PatchMatch fits a laptop GPU in minutes.
+        plan = _depth_plan(text / "images.txt", _DEPTH_REFERENCES, _DEPTH_SOURCES)
+        if plan:
+            (dense / "stereo" / "patch-match.cfg").write_text(plan)
+        args = [
+            "patch_match_stereo",
+            "--workspace_path",
+            str(dense),
+            "--workspace_format",
+            "COLMAP",
+            "--PatchMatchStereo.geom_consistency",
+            "true",
+        ]
+        # The GPU computes the depth maps while the CPU carves the silhouettes:
+        # the caller waits for them only when it needs them (wait_depth_maps).
+        job = _DepthJob()
+        _DEPTH_JOBS[str(dense)] = job
+
+        def work() -> None:
+            try:
+                self._stage(result, "patch_match_stereo", args)
+            except Exception as exc:  # reported to whoever waits for the maps
+                job.error = exc
+            finally:
+                job.done.set()
+
+        threading.Thread(target=work, name="patch-match", daemon=True).start()
+        return dense
 
     def _dense(
         self,

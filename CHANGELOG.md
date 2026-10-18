@@ -2,6 +2,19 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.16.0] — 2026-10-18
+
+### Forma fiel a las fotos (Reverse3D Core 0.7)
+- Con el Core 0.7 y una GPU con CUDA, los objetos ya no salen solo de las siluetas: COLMAP calcula **mapas de profundidad** (PatchMatch) y el Core ajusta el modelo a ellos. Aparecen hendiduras, relieves y concavidades que las siluetas rellenaban.
+- La **IA local de profundidad** (Depth Anything V2 Small, Apache-2.0) completa las zonas lisas o brillantes donde el estéreo no mide; el Core la calibra con cada foto antes de usarla.
+- **Agente de fidelidad:** la IA compara el modelo con cada foto (su silueta frente a lo que el segmentador ve) y lo corrige hasta que coinciden. El informe trae la coincidencia medida en `details.silhouette.fidelity` y las fotos cuyo recorte no es fiable.
+- `details.silhouette.depth_fitted` indica cuántos vértices se ajustaron. Sin GPU o sin el Core, la forma sale de las siluetas como antes.
+
+### Más rápido
+- La GPU calcula los mapas de profundidad **mientras** la CPU recorta las siluetas (antes, una etapa esperaba a la otra), sobre 48 fotos repartidas alrededor del objeto.
+- El Core reparte el trabajo de cada cámara entre todos los hilos de la CPU (`R3D_THREADS` lo limita).
+- La malla de producción vuelve a aligerarse (~40 000 caras): una medida de desviación demasiado pesimista la dejaba completa y frenaba la textura.
+
 ## [0.15.0] — 2026-10-18
 
 ### Textura de alta fidelidad (Reverse3D Core 0.6)
