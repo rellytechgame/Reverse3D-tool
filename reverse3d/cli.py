@@ -765,6 +765,9 @@ def auto_cmd(
         "auto",
         help="Photo sets: auto (predicted), object, character, architecture or landscape.",
     ),
+    height_mm: float | None = typer.Option(
+        None, "--height-mm", min=0, help="Object's real height in mm: the model comes out in mm."
+    ),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite outputs."),
 ) -> None:
     """Detect what INPUT is and process it automatically (no recipe to choose)."""
@@ -778,6 +781,7 @@ def auto_cmd(
         scale=scale,
         render=render,
         scene=scene,
+        real_height_mm=height_mm,
         overwrite=force,
     )
 

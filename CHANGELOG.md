@@ -2,6 +2,16 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.14.0] — 2026-10-18
+
+### Tamaño real
+- **`--height-mm`** (`auto`) / `RecipeOptions.real_height_mm`: con la altura real del objeto, el modelo sale en **milímetros**, listo para imprimir a tamaño real. Las fotos solas dan la forma, no el tamaño. Se aplica a objetos apoyados; el informe lo indica en `details.real_scale`.
+
+### Malla de producción (Reverse3D Core 0.5)
+- Con el Core 0.5, `model.glb` (juegos, web, visores) se hace sobre una malla **limpia y ligera** (unas 40 000 caras, desviación máxima medida ≤ 0,4 % del tamaño) y lleva la textura; `model.stl` conserva todo el detalle para imprimir. El informe lo detalla en `details.production_mesh`.
+- El Core 0.5 funciona solo con una licencia firmada por Voxel Enterprise (Studio la incluye). `reverse3d doctor` muestra si la licencia es válida. Sin ella, la herramienta usa su método abierto.
+- Nueva dependencia: `cryptography` (para verificar la licencia).
+
 ## [0.13.0] — 2026-10-18
 
 ### Agente de calidad (Reverse3D Core 0.4)

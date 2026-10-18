@@ -49,6 +49,8 @@ dependencies = [
     "mapbox-earcut>=1.0",
     "networkx>=3.2",
     "fast-simplification>=0.1.7",
+    # Verifies the signed licence of the optional reverse3d-core engine.
+    "cryptography>=42",
     "pydantic>=2.6",
     "typer>=0.12",
     "rich>=13.7",

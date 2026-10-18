@@ -48,7 +48,20 @@ def core_status() -> dict[str, object]:
     core = core_engine()
     if core is None:
         return {"available": False, "hint": "Included in reverse3d Studio."}
-    return {"available": True, "version": str(getattr(core, "__version__", "?"))}
+    status: dict[str, object] = {
+        "available": True,
+        "version": str(getattr(core, "__version__", "?")),
+    }
+    try:  # reverse3d-core 0.5+ runs only with a licence signed by Voxel Enterprise
+        import importlib
+
+        payload = importlib.import_module("reverse3d_core.licensing").require_license()
+        status.update(licensed=True, licensee=payload.get("licensee"), tier=payload.get("tier"))
+    except ModuleNotFoundError:
+        status["licensed"] = True  # older cores had no licence check
+    except Exception as exc:
+        status.update(licensed=False, hint=str(exc))
+    return status
 
 
 def environment_report(settings: Settings, *, include_offline: bool = True) -> dict[str, object]:

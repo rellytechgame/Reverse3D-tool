@@ -85,6 +85,9 @@ class RecipeOptions:
     mask_path: str | None = None
     #: mesh repair strength; "strong" closes much larger holes.
     repair: Literal["normal", "strong"] = "normal"
+    #: photos_to_model: the object's real height in millimetres; the model then
+    #: comes out in mm (photos alone only give the shape, not the size).
+    real_height_mm: float | None = None
 
 
 @dataclass
@@ -311,6 +314,47 @@ _DEFAULT_LOOK = {
 }
 
 
+# Faces of the textured model for games, the web and viewers (model.stl keeps all).
+_PRODUCTION_FACES = 40000
+
+
+def _production_mesh(run: _Run, mesh: Any) -> Any:
+    """reverse3d-core: a clean, light mesh within a measured deviation, for model.glb."""
+    from reverse3d.reconstruction.silhouette import core_engine
+
+    core = core_engine()
+    optimize = getattr(core, "optimize_mesh", None)
+    if optimize is None:
+        return mesh
+    try:
+        light, report = optimize(mesh, _PRODUCTION_FACES)
+    except Exception as exc:  # never fail a job because of the optional engine
+        logger.info("Production mesh skipped: %s", exc)
+        return mesh
+    run.details["production_mesh"] = dict(report)
+    return light
+
+
+def _real_scale(run: _Run, mesh_path: Path, opt: RecipeOptions, upright: bool) -> float:
+    """Scale factor that makes the model's height equal the real one (model in mm)."""
+    if not opt.real_height_mm:
+        return opt.scale
+    if not upright:
+        run.warnings.append(
+            "The real height only applies to objects standing on a surface; "
+            "the scale was not changed."
+        )
+        return opt.scale
+    import trimesh
+
+    height = float(trimesh.load(mesh_path, force="mesh").extents[2])
+    if height <= 0:
+        return opt.scale
+    factor = opt.real_height_mm / height
+    run.details["real_scale"] = {"height_mm": opt.real_height_mm, "factor": factor, "units": "mm"}
+    return factor
+
+
 def _texture(run: _Run, model: Path, photo: Any, to_world: list[list[float]], scale: float) -> None:
     """Bake a photo texture onto the final model: model.glb gets real detail."""
     try:
@@ -319,6 +363,7 @@ def _texture(run: _Run, model: Path, photo: Any, to_world: list[list[float]], sc
         from reverse3d.reconstruction.texture import bake_texture
 
         mesh: Any = trimesh.load(model, process=False, force="mesh")
+        mesh = _production_mesh(run, mesh)
         # The cleaned model is the carved hull scaled by ``scale``.
         world = np.asarray(to_world) @ np.diag([1 / scale, 1 / scale, 1 / scale, 1.0])
         textured = run.step(
@@ -526,11 +571,12 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
                 logger.info("Colouring from the point cloud skipped: %s", exc)
         mesh_path = str(colored) if colored else mesh_path
     model = run.out / "model.stl"
+    scale = _real_scale(run, Path(mesh_path), opt, upright)
     _clean(
         run,
         Path(mesh_path),
         model,
-        scale=opt.scale,
+        scale=scale,
         overwrite=opt.overwrite,
         fill_holes=preset.fill_holes,
         align="none" if upright else "obb",
@@ -538,7 +584,7 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
         repair=opt.repair,
     )
     if upright and hull_world is not None:
-        _texture(run, model, photo, hull_world, opt.scale)
+        _texture(run, model, photo, hull_world, scale)
     return _measure(run, model)
 
 
@@ -716,6 +762,8 @@ def run_recipe(
         raise InputValidationError("thickness must be in (0, 1e6].")
     if not 1e-9 < opt.scale < 1e9:
         raise InputValidationError("scale must be a positive factor.")
+    if opt.real_height_mm is not None and not 0 < opt.real_height_mm < 1e7:
+        raise InputValidationError("real_height_mm must be a positive length in millimetres.")
 
     out = prepare_output_dir(output_dir)
     run = _Run(recipe=recipe, settings=settings, out=out)
