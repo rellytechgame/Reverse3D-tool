@@ -177,6 +177,42 @@ _CAMERA_FEATURES = 4096
 _OBJECT_EXHAUSTIVE_LIMIT = 400
 
 
+_WHERE = {
+    "top": "from above",
+    "around": "around the object at mid height",
+    "low": "from a low angle",
+}
+
+
+def _quality_outputs(run: _Run, hull: Any) -> None:
+    """Confidence map (model_quality.glb) and capture advice from reverse3d-core."""
+    quality = getattr(hull, "quality", None) or {}
+    if hull.quality_path:
+        try:
+            import trimesh
+
+            glb = run.out / "model_quality.glb"
+            _export_glb(trimesh.load(hull.quality_path, process=False, force="mesh"), glb)
+            run.outputs["model_quality"] = str(glb)
+        except Exception as exc:  # the map is a bonus: never fail the model for it
+            logger.info("Confidence map skipped: %s", exc)
+    covered = quality.get("covered")
+    if covered is None or covered >= _WELL_COVERED:
+        return
+    for advice in quality.get("advice", [])[:2]:
+        where = _WHERE.get(str(advice.get("elevation")), "around the object")
+        photo = Path(str(advice.get("near_photo", ""))).stem
+        share = round(100 * float(advice.get("share", 0.0)))
+        run.warnings.append(
+            f"{share}% of the model is weakly supported by the photos: take more photos "
+            f"{where}, near where you took {photo}."
+        )
+
+
+# Share of the surface the photos must support well for no capture advice.
+_WELL_COVERED = 0.95
+
+
 def _export_glb(mesh: Any, path: Path) -> None:
     """Write a GLB that stands up in any viewer: glTF is Y-up, our models are Z-up.
 
@@ -442,6 +478,7 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
             mesh_path = photo.mesh_path
         else:
             run.details["silhouette"] = hull.to_dict()
+            _quality_outputs(run, hull)
             if hull.unreliable:
                 names = ", ".join(Path(n).stem for n in hull.unreliable[:5])
                 more = "…" if len(hull.unreliable) > 5 else ""

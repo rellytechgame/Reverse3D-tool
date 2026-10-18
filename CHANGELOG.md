@@ -2,6 +2,15 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.13.0] — 2026-10-18
+
+### Agente de calidad (Reverse3D Core 0.4)
+- **Mapa de confianza:** con el Core 0.4, cada punto del modelo recibe una confianza según cuántas fotos lo ven de frente, y se guarda `model_quality.glb` (verde = bien cubierto, ámbar = pocas fotos, rojo = faltan fotos). La base apoyada en la mesa no cuenta, porque no se puede fotografiar.
+- **Consejos de captura:** si menos del 95 % del modelo está bien cubierto, el aviso dice qué parte y desde dónde tomar más fotos («toma más fotos desde arriba, cerca de donde tomaste IMG_5026»). El informe lo incluye en `details.silhouette.quality`.
+
+### Corregido
+- **Normales invertidas:** si la malla tallada no quedaba perfectamente cerrada, a veces salía con las caras del revés; ahora siempre miran hacia fuera. Afectaba al refinamiento por fotos y a los visores.
+
 ## [0.12.0] — 2026-10-18
 
 ### Más detalle con Reverse3D Core 0.3

@@ -94,6 +94,10 @@ class HullResult:
     unreliable: list[str] = field(default_factory=list)
     #: vertices reverse3d-core moved by photo consistency (0 without it)
     refined_vertices: int = 0
+    #: reverse3d-core quality agent: share of the surface well supported and advice
+    quality: dict[str, object] = field(default_factory=dict)
+    #: confidence map (red -> green vertex colours), same coordinates as the model
+    quality_path: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -367,6 +371,12 @@ def _complete_base(
     out = volume.reshape(-1).copy()
     out[below] = 1.0
     return out.reshape(volume.shape)
+
+
+def _outward_share(mesh: trimesh.Trimesh) -> float:
+    """Share of vertex normals pointing away from the centroid (about 1 when outward)."""
+    rel = np.asarray(mesh.vertices) - np.asarray(mesh.centroid)
+    return float(np.mean((rel * np.asarray(mesh.vertex_normals)).sum(axis=1) > 0))
 
 
 def _coarse_grabcut(image: np.ndarray, rect: tuple[int, int, int, int]) -> np.ndarray:
@@ -965,6 +975,10 @@ def visual_hull(
     mesh = trimesh.Trimesh(verts, faces, process=True)
     trimesh.smoothing.filter_taubin(mesh, lamb=0.5, nu=-0.53, iterations=15)
     mesh.fix_normals()
+    # fix_normals cannot tell outside from inside on a mesh that is not perfectly
+    # closed: make the normals point away from the object's centre.
+    if _outward_share(mesh) < 0.5:
+        mesh.invert()
     refined_vertices = 0
     refine_mesh = getattr(core, "refine_mesh", None) if core_cameras is not None else None
     if refine_mesh is not None:
@@ -985,6 +999,17 @@ def visual_hull(
     # Stand it upright: +Z along the table normal (or the mean camera "up").
     up = plane[0] if plane is not None else np.mean(cameras - center, axis=0)
     up = up / np.linalg.norm(up)
+    quality: dict[str, object] = {}
+    quality_colors: np.ndarray | None = None
+    assess_quality = getattr(core, "assess_quality", None) if core_cameras is not None else None
+    if assess_quality is not None:
+        # reverse3d-core >= 0.4: how well the photos support each part, and advice.
+        try:
+            report = assess_quality(mesh, core_cameras, up, 0.5 * (2 * radius / (n - 1)))
+            quality_colors = np.asarray(report["colors"])
+            quality = {"covered": float(report["covered"]), "advice": list(report["advice"])}
+        except Exception as exc:  # never fail a job because of the optional engine
+            logger.warning("reverse3d-core quality check failed (%s)", exc)
     side = np.cross([0.0, 1.0, 0.0] if abs(up[1]) < 0.9 else [1.0, 0.0, 0.0], up)
     side /= np.linalg.norm(side)
     basis = np.stack([side, np.cross(up, side), up])
@@ -997,6 +1022,12 @@ def visual_hull(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     mesh.export(output_path)
+    quality_path: str | None = None
+    if quality_colors is not None and len(quality_colors) == len(mesh.vertices):
+        heat = trimesh.Trimesh(mesh.vertices, mesh.faces, process=False)
+        heat.visual = trimesh.visual.ColorVisuals(heat, vertex_colors=quality_colors)
+        quality_path = str(output_path.with_name(output_path.stem + "_quality.ply"))
+        heat.export(quality_path)
     logger.info("Silhouette model: %d views, %d faces", len(views), len(mesh.faces))
     return HullResult(
         str(output_path),
@@ -1016,4 +1047,6 @@ def visual_hull(
         if core_weights is not None and engine != "reverse3d"
         else [],
         refined_vertices,
+        quality,
+        quality_path,
     )

@@ -353,6 +353,7 @@ Si las fotos están borrosas o falta una herramienta, **no reintenta en vano**: 
 | Recortes perfectos | 0,943 | 0,941 |
 | 15 % de recortes defectuosos | 0,000 (pierde el objeto) | **0,921** |
 | Concavidad invisible a las siluetas (error en la ranura) | 0,154 | **0,091** (refinamiento por fotos, Core 0.3) |
+| Mapa de confianza y consejos de captura | — | ✅ Core 0.4 (`model_quality.glb`) |
 
 *(Coincidencia volumétrica, IoU: 1 = idéntico.)*
 

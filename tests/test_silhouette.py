@@ -440,3 +440,49 @@ def test_the_core_refines_the_hull_by_photo_consistency(
     images, text = _scene(tmp_path)
     result = visual_hull(images, text, tmp_path / "hull.ply", resolution=48, refinements=1)
     assert result.refined_vertices == 42
+
+
+class _QualityCore(_FakeCore):
+    """A fake reverse3d-core >= 0.4 with the quality agent."""
+
+    def assess_quality(self, mesh, cameras, up, step):  # type: ignore[no-untyped-def]
+        n = len(mesh.vertices)
+        colors = np.tile(np.array([[74, 222, 128, 255]], np.uint8), (n, 1))
+        advice = [{"elevation": "top", "share": 0.08, "near_photo": "img_03.png"}]
+        return {"confidence": np.ones(n), "colors": colors, "covered": 0.82, "advice": advice}
+
+
+def test_the_core_quality_agent_writes_a_confidence_map(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from reverse3d.reconstruction import silhouette
+
+    monkeypatch.setattr(silhouette, "core_engine", lambda: _QualityCore())
+    images, text = _scene(tmp_path)
+    result = visual_hull(images, text, tmp_path / "hull.ply", resolution=48, refinements=1)
+    assert result.quality["covered"] == pytest.approx(0.82)
+    assert result.quality_path is not None
+    heat = trimesh.load(result.quality_path, process=False)
+    assert len(heat.vertices) == len(trimesh.load(result.mesh_path, process=False).vertices)
+
+
+def test_capture_advice_becomes_a_warning_only_when_coverage_is_low(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from reverse3d.config import Settings
+    from reverse3d.recipes import _quality_outputs, _Run
+
+    run = _Run(recipe="photos_to_model", settings=Settings(workspace=tmp_path), out=tmp_path)
+    advice = [{"elevation": "top", "share": 0.08, "near_photo": "IMG_5026.jpg"}]
+    _quality_outputs(
+        run, SimpleNamespace(quality={"covered": 0.82, "advice": advice}, quality_path=None)
+    )
+    assert run.warnings == [
+        "8% of the model is weakly supported by the photos: take more photos from above, "
+        "near where you took IMG_5026."
+    ]
+    run.warnings.clear()
+    _quality_outputs(
+        run, SimpleNamespace(quality={"covered": 0.98, "advice": advice}, quality_path=None)
+    )
+    assert run.warnings == []
