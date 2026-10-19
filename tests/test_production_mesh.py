@@ -103,11 +103,14 @@ def test_agents_can_be_switched_off_for_benchmarks(monkeypatch) -> None:  # type
 def test_own_vision_model_maps_outputs_back_to_the_photo() -> None:
     import numpy as np
 
+    from typing import ClassVar
+
     from reverse3d.ai_models import VisionModel
 
     class Info:
         name, version = "optiverse-1", "9.9.9"
-        manifest = {"input": {"size": 28}, "profiles": ["object", "character", "architecture", "landscape"]}
+        profiles = ("object", "character", "architecture", "landscape")
+        manifest: ClassVar = {"input": {"size": 28}, "profiles": list(profiles)}
 
     class Session:
         def run(self, _outputs, feeds):  # type: ignore[no-untyped-def]

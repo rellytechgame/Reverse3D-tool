@@ -51,6 +51,8 @@ dependencies = [
     "fast-simplification>=0.1.7",
     # Verifies the signed licence of the optional reverse3d-core engine.
     "cryptography>=42",
+    # Runs Voxel Enterprise's own AI models (.r3dm packs) through reverse3d-core.
+    "onnxruntime>=1.18",
     "pydantic>=2.6",
     "typer>=0.12",
     "rich>=13.7",
