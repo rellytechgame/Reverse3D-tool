@@ -101,9 +101,9 @@ def test_agents_can_be_switched_off_for_benchmarks(monkeypatch) -> None:  # type
 
 
 def test_own_vision_model_maps_outputs_back_to_the_photo() -> None:
-    import numpy as np
-
     from typing import ClassVar
+
+    import numpy as np
 
     from reverse3d.ai_models import VisionModel
 
