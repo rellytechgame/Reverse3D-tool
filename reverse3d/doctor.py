@@ -61,6 +61,17 @@ def core_status() -> dict[str, object]:
         status["licensed"] = True  # older cores had no licence check
     except Exception as exc:
         status.update(licensed=False, hint=str(exc))
+    try:  # reverse3d-core 0.8+: Voxel Enterprise model packs (Optiverse...)
+        import importlib
+
+        packs = importlib.import_module("reverse3d_core.models").list_packs()
+        status["models"] = [
+            {k: p.get(k) for k in ("name", "version", "tier", "usable")} for p in packs
+        ]
+    except ModuleNotFoundError:  # older cores: no model packs
+        status["models"] = []
+    except Exception as exc:  # a damaged models folder must not break doctor
+        status["models_error"] = str(exc)
     return status
 
 

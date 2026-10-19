@@ -930,6 +930,34 @@ def offline_prepare_cmd(
     _run(ctx, lambda s: prepare(s, include_non_commercial=include_non_commercial))
 
 
+# ─── model packs ──────────────────────────────────────────────────────────────
+
+
+models_app = typer.Typer(
+    help="Voxel Enterprise AI model packs (.r3dm), such as Optiverse.", no_args_is_help=True
+)
+app.add_typer(models_app, name="models")
+
+
+@models_app.command("list")
+def models_list_cmd(ctx: typer.Context) -> None:
+    """Show the installed model packs and whether your licence can use them."""
+    from reverse3d.ai_models import list_models
+
+    _run(ctx, lambda s: list_models())
+
+
+@models_app.command("install")
+def models_install_cmd(
+    ctx: typer.Context,
+    pack: Path = typer.Argument(..., help="A .r3dm file (for example, downloaded from Drive)."),
+) -> None:
+    """Install a model pack after checking its Voxel Enterprise signature."""
+    from reverse3d.ai_models import install_model
+
+    _run(ctx, lambda s: install_model(pack))
+
+
 # ─── configuration ────────────────────────────────────────────────────────────
 
 

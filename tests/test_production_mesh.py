@@ -74,3 +74,17 @@ def test_colmap_bat_launcher_is_replaced_by_the_real_exe(tmp_path) -> None:  # t
     exe.write_bytes(b"")
     assert _real_executable(bat) == exe  # paths with spaces break cmd.exe
     assert _real_executable(exe) == exe
+
+
+def test_models_commands_need_the_core_and_a_pack_file(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    import pytest
+
+    from reverse3d import ai_models
+    from reverse3d.errors import DependencyMissingError, InputValidationError
+
+    monkeypatch.setattr("reverse3d.reconstruction.silhouette.core_engine", lambda: None)
+    with pytest.raises(DependencyMissingError):
+        ai_models.list_models()
+    monkeypatch.setattr(ai_models, "_core_models", lambda: object())
+    with pytest.raises(InputValidationError):
+        ai_models.install_model(tmp_path / "not-a-pack.zip")
