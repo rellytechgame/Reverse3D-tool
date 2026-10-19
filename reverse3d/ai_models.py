@@ -72,6 +72,8 @@ class VisionModel:
         self.mean = np.asarray(spec.get("mean", (0.485, 0.456, 0.406)), np.float32)
         self.std = np.asarray(spec.get("std", (0.229, 0.224, 0.225)), np.float32)
         self.profiles = tuple(info.manifest.get("profiles", _PROFILES))
+        #: set (signed) at export once the cut-out beats the reference on real photos
+        self.mask_ready = bool(info.manifest.get("mask_ready", False))
 
     @property
     def label(self) -> str:
@@ -107,6 +109,36 @@ class VisionModel:
             prob_mask.astype(np.float32),
             {p: float(v) for p, v in zip(self.profiles, probs, strict=False)},
         )
+
+
+class OwnSegmenter:
+    """The subject cut-out of Optiverse / Revenus with the interface of the SAM segmenter
+    (embed once per photo, then segment with a box and a point)."""
+
+    def __init__(self, model: VisionModel) -> None:
+        self.model = model
+
+    def embed(self, rgb: np.ndarray) -> dict[str, Any]:
+        return {"prob": self.model.run(rgb)[1]}
+
+    def segment(
+        self, state: dict[str, Any], box: tuple[int, int, int, int], point: tuple[float, float]
+    ) -> np.ndarray:
+        import cv2
+
+        prob = state["prob"]
+        x0, y0, x1, y1 = box
+        inside = np.zeros(prob.shape, bool)
+        inside[max(0, y0) : y1 + 1, max(0, x0) : x1 + 1] = True
+        mask = ((prob > 0.5) & inside).astype(np.uint8)
+        # Only the object the box and the point are about: no loose blobs.
+        n, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+        if n > 1:
+            px = min(max(int(point[0]), 0), mask.shape[1] - 1)
+            py = min(max(int(point[1]), 0), mask.shape[0] - 1)
+            label = int(labels[py, px]) or 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+            mask = (labels == label).astype(np.uint8)
+        return np.where(mask > 0, 255, 0).astype(np.uint8)
 
 
 _loaded: VisionModel | bool | None = False

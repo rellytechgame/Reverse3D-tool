@@ -522,9 +522,17 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
         from reverse3d.reconstruction.silhouette import visual_hull
         from reverse3d.vision.segmenter import ObjectSegmenter
 
-        def load_segmenter() -> ObjectSegmenter | None:
+        def load_segmenter() -> Any:
             # The AI segmenter keeps dark caps, handles and thin parts; without it
             # (no AI extra, or offline before the first download) GrabCut is used.
+            # Voxel Enterprise's own model cuts out the subject once it is validated
+            # on real photos (mask_ready, signed in its manifest).
+            from reverse3d.ai_models import OwnSegmenter, own_model
+
+            own = own_model()
+            if own is not None and own.mask_ready:
+                run.details["ai_segmentation_model"] = own.label
+                return OwnSegmenter(own)
             try:
                 return ObjectSegmenter(run.settings, device=torch_device(run.settings))
             except Reverse3DError as exc:
