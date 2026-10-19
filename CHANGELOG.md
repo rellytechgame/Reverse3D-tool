@@ -2,6 +2,17 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.17.0] — 2026-10-19
+
+### Modelos propios de Voxel Enterprise
+- `reverse3d models list` y `reverse3d models install <archivo.r3dm>`: instalan los modelos propios (Optiverse, Revenus) después de verificar la firma de Voxel Enterprise; `reverse3d doctor` los muestra. Requiere Reverse3D Core 0.8.
+- Con un modelo propio instalado y una licencia que lo permita, la reconstrucción lo usa automáticamente para la **profundidad** y el **tipo de escena** (cuando está seguro al 70 % o más). El recorte del objeto sigue con SAM hasta que la evaluación demuestre que el nuestro es igual o mejor.
+- Dependencia `onnxruntime` (MIT) para ejecutar los modelos.
+
+### Más robusto
+- Las escenas densas (edificios, paisajes) simplifican la malla Poisson a un máximo de 1 millón de caras: una casa daba 2,3 millones (117 MB) y el proceso fallaba al recargarla.
+- `R3D_SKIP` apaga agentes del Core para estudios comparativos.
+
 ## [0.16.1] — 2026-10-19
 
 ### Corregido
