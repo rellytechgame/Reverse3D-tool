@@ -414,10 +414,10 @@ def _texture(run: _Run, model: Path, photo: Any, to_world: list[list[float]], sc
 
 
 def _core_fits_depth() -> bool:
-    from reverse3d.reconstruction.silhouette import core_engine
+    from reverse3d.reconstruction.silhouette import agent_skipped, core_engine
 
     core = core_engine()
-    return core is not None and hasattr(core, "fit_depth")
+    return core is not None and hasattr(core, "fit_depth") and not agent_skipped("depth")
 
 
 def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:

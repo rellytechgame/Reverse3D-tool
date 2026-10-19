@@ -71,10 +71,20 @@ def core_engine() -> Any | None:
     disagree with the rest lose weight instead of erasing the object). Without
     it, the open method below is used.
     """
+    if agent_skipped("core"):
+        return None
     try:
         return importlib.import_module("reverse3d_core")
     except ImportError:
         return None
+
+
+def agent_skipped(name: str) -> bool:
+    """R3D_SKIP=depth,photo,fidelity,quality,texture,core turns agents off (benchmarks).
+
+    Used by the reverse3d-models ablation study to measure what each agent adds.
+    """
+    return name in {s.strip() for s in os.environ.get("R3D_SKIP", "").split(",") if s.strip()}
 
 
 @dataclass
@@ -1057,7 +1067,11 @@ def visual_hull(
         mesh.invert()
     _debug_mesh(mesh, "1_hull")
     depth_fitted = 0
-    fit_depth = getattr(core, "fit_depth", None) if core_cameras is not None else None
+    fit_depth = (
+        getattr(core, "fit_depth", None)
+        if core_cameras is not None and not agent_skipped("depth")
+        else None
+    )
     if fit_depth is not None and depth_workspace is not None and _depth_ready(depth_workspace):
         # reverse3d-core >= 0.7: stereo depth maps recover grooves and reliefs.
         try:
@@ -1078,7 +1092,11 @@ def visual_hull(
         except Exception as exc:  # never fail a job because of the optional engine
             logger.warning("reverse3d-core depth fit failed (%s); keeping the hull", exc)
     refined_vertices = 0
-    refine_mesh = getattr(core, "refine_mesh", None) if core_cameras is not None else None
+    refine_mesh = (
+        getattr(core, "refine_mesh", None)
+        if core_cameras is not None and not agent_skipped("photo")
+        else None
+    )
     if refine_mesh is not None:
         # reverse3d-core >= 0.3: photo consistency carves what silhouettes cannot see.
         try:
@@ -1091,7 +1109,11 @@ def visual_hull(
         except Exception as exc:  # never fail a job because of the optional engine
             logger.warning("reverse3d-core refinement failed (%s); keeping the hull", exc)
     fidelity: dict[str, Any] = {}
-    verify = getattr(core, "verify_fidelity", None) if core_cameras is not None else None
+    verify = (
+        getattr(core, "verify_fidelity", None)
+        if core_cameras is not None and not agent_skipped("fidelity")
+        else None
+    )
     if verify is not None:
         # reverse3d-core >= 0.7: the fidelity agent renders the model from every
         # photo, compares it with what the AI segmenter sees and corrects it.
@@ -1117,7 +1139,11 @@ def visual_hull(
     up = up / np.linalg.norm(up)
     quality: dict[str, object] = {}
     quality_colors: np.ndarray | None = None
-    assess_quality = getattr(core, "assess_quality", None) if core_cameras is not None else None
+    assess_quality = (
+        getattr(core, "assess_quality", None)
+        if core_cameras is not None and not agent_skipped("quality")
+        else None
+    )
     if assess_quality is not None:
         # reverse3d-core >= 0.4: how well the photos support each part, and advice.
         try:

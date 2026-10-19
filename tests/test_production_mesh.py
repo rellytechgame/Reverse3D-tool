@@ -88,3 +88,13 @@ def test_models_commands_need_the_core_and_a_pack_file(tmp_path, monkeypatch) ->
     monkeypatch.setattr(ai_models, "_core_models", lambda: object())
     with pytest.raises(InputValidationError):
         ai_models.install_model(tmp_path / "not-a-pack.zip")
+
+
+def test_agents_can_be_switched_off_for_benchmarks(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from reverse3d.reconstruction.silhouette import agent_skipped, core_engine
+
+    monkeypatch.setenv("R3D_SKIP", "fidelity, depth")
+    assert agent_skipped("fidelity") and agent_skipped("depth")
+    assert not agent_skipped("photo")
+    monkeypatch.setenv("R3D_SKIP", "core")
+    assert core_engine() is None

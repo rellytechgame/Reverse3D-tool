@@ -23,7 +23,13 @@ import numpy as np
 import trimesh
 
 from reverse3d.errors import DependencyMissingError, ProcessingError
-from reverse3d.reconstruction.silhouette import _project, _View, core_engine, read_colmap_text
+from reverse3d.reconstruction.silhouette import (
+    _project,
+    _View,
+    agent_skipped,
+    core_engine,
+    read_colmap_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +146,7 @@ def _core_texture(
     """The texture from reverse3d-core (cameras aligned by colour, one sharp photo
     per face, no seams), or None to use the open method."""
     core = core_engine()
-    if core is None or not hasattr(core, "texture_mesh"):
+    if core is None or not hasattr(core, "texture_mesh") or agent_skipped("texture"):
         return None
     cameras = [
         core.Camera(
