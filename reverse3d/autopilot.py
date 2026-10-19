@@ -388,6 +388,9 @@ def auto_run(
             history.append({"attempt": attempt.label, "ok": False, "error": exc.message})
             last_error = exc
             logger.info("Autopilot attempt '%s' failed: %s", attempt.label, exc.message)
+            tail = getattr(exc, "stderr_tail", "")
+            if tail:  # what the external tool said: the only clue to why it failed
+                logger.info("Tool output (end): %s", tail[-1500:])
             continue
         history.append({"attempt": attempt.label, "ok": True})
         if (

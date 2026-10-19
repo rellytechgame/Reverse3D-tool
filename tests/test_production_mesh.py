@@ -61,3 +61,16 @@ def test_colmap_depth_maps_are_read_in_image_layout(tmp_path) -> None:  # type: 
     path = tmp_path / "a.jpg.geometric.bin"
     path.write_bytes(b"4&3&1&" + depth.tobytes())  # COLMAP: rows one after another
     assert np.array_equal(read_depth_map(path), depth)
+
+
+def test_colmap_bat_launcher_is_replaced_by_the_real_exe(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from reverse3d.reconstruction.photogrammetry import _real_executable
+
+    bat = tmp_path / "COLMAP.bat"
+    bat.write_text("@echo off")
+    assert _real_executable(bat) == bat  # no exe next to it: keep the launcher
+    (tmp_path / "bin").mkdir()
+    exe = tmp_path / "bin" / "colmap.exe"
+    exe.write_bytes(b"")
+    assert _real_executable(bat) == exe  # paths with spaces break cmd.exe
+    assert _real_executable(exe) == exe

@@ -225,13 +225,32 @@ def _depth_plan(images_txt: Path, references: int, sources: int) -> str:
     return "\n".join(out) + "\n"
 
 
+def _real_executable(path: Path) -> Path:
+    """The colmap.exe behind a Windows COLMAP.bat launcher, when there is one.
+
+    cmd.exe re-parses a batch file's arguments: a path with spaces (a user
+    named "Juan Perez", "Mis Documentos") breaks it ("No se esperaba ...").
+    The real executable takes the arguments as they are; its DLLs sit next to it.
+    """
+    if path.suffix.lower() in {".bat", ".cmd"}:
+        exe = path.parent / "bin" / "colmap.exe"
+        if exe.is_file():
+            return exe
+    return path
+
+
 class ColmapPipeline:
     """Thin, safe wrapper around the ``colmap`` executable."""
 
     def __init__(self, settings: Settings, executable: Path | None = None) -> None:
         self.settings = settings
-        self.executable = executable or resolve_executable(
-            ["colmap", "COLMAP", "colmap.exe", "COLMAP.bat"], settings.colmap_path, tool="colmap"
+        self.executable = _real_executable(
+            executable
+            or resolve_executable(
+                ["colmap", "COLMAP", "colmap.exe", "COLMAP.bat"],
+                settings.colmap_path,
+                tool="colmap",
+            )
         )
         self._help_cache: dict[str, str] = {}
 

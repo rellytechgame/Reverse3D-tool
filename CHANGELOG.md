@@ -2,6 +2,12 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.16.1] — 2026-10-19
+
+### Corregido
+- **Rutas con espacios en Windows:** COLMAP fallaba (código 255, «No se esperaba … en este momento») si las fotos o la salida estaban en una ruta con espacios, como una carpeta de usuario «Juan Pérez» o «Mis Documentos». Ahora se ejecuta `colmap.exe` directamente en lugar del lanzador `COLMAP.bat`. Lo detectó el nuevo banco de pruebas de reverse3d-models.
+- Cuando un intento falla, el registro guarda el final de lo que dijo la herramienta externa.
+
 ## [0.16.0] — 2026-10-18
 
 ### Forma fiel a las fotos (Reverse3D Core 0.7)
