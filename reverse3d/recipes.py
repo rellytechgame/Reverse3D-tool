@@ -536,6 +536,13 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
 
         def load_depth() -> Callable[[np.ndarray], np.ndarray] | None:
             # AI depth reveals concavities and holes (cup insides, handle loops).
+            # Voxel Enterprise's own model (Optiverse / Revenus) when installed.
+            from reverse3d.ai_models import own_model
+
+            own = own_model()
+            if own is not None:
+                run.details["ai_model"] = own.label
+                return lambda rgb: own.run(rgb)[0]
             from reverse3d.reconstruction.depth_estimation import predict_depth
 
             device = torch_device(run.settings)

@@ -327,6 +327,35 @@ def _ai_subject(images: list[Path], settings: Settings) -> tuple[str | None, dic
     return max(scores, key=scores.__getitem__), scores
 
 
+_OWN_CONFIDENT = 0.7
+
+
+def _own_profile(images: list[Path]) -> tuple[str, float] | None:
+    """Profile and probability from Optiverse / Revenus over a sample of the photos."""
+    from reverse3d.ai_models import own_model
+
+    model = own_model()
+    if model is None:
+        return None
+    import cv2
+
+    step = max(1, len(images) // _SAMPLE)
+    totals: dict[str, float] = {}
+    used = 0
+    for path in images[::step][:_SAMPLE]:
+        bgr = cv2.imread(str(path))
+        if bgr is None:
+            continue
+        small = cv2.resize(bgr, None, fx=0.25, fy=0.25, interpolation=cv2.INTER_AREA)
+        for name, p in model.run(cv2.cvtColor(small, cv2.COLOR_BGR2RGB))[2].items():
+            totals[name] = totals.get(name, 0.0) + p
+        used += 1
+    if not used:
+        return None
+    best = max(totals, key=totals.__getitem__)
+    return best, totals[best] / used
+
+
 def _subject_label(subject: str | None) -> str | None:
     from reverse3d.vision.classifier import SUBJECT_LABEL_ES
 
@@ -359,6 +388,23 @@ def detect_scene(image_dir: str | Path, settings: Settings) -> SceneDetection:
         render = SUBJECT_RENDER[subject]
         confidence = round(min(0.98, max(subject_scores.get(subject, 0.0), 0.5)), 2)
         reasons.insert(0, f"ai_{subject}")
+    own = _own_profile(images)
+    if own is not None and own[1] >= _OWN_CONFIDENT:
+        # Voxel Enterprise's own model decides the profile when it is sure; the
+        # subject (render style) is kept only if it agrees with that profile.
+        if own[0] != kind:
+            render = (
+                "aerial"
+                if own[0] == "landscape"
+                else "architecture"
+                if own[0] == "architecture"
+                else "portrait"
+                if own[0] == "character"
+                else "studio"
+            )
+        kind = own[0]  # type: ignore[assignment]
+        confidence = round(min(0.98, own[1]), 2)
+        reasons.insert(0, f"model_{kind}")
     preset = SCENE_PRESETS[kind]
     enough = signals.photos >= preset.min_photos
     if not enough:

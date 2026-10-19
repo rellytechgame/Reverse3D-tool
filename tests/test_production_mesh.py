@@ -98,3 +98,28 @@ def test_agents_can_be_switched_off_for_benchmarks(monkeypatch) -> None:  # type
     assert not agent_skipped("photo")
     monkeypatch.setenv("R3D_SKIP", "core")
     assert core_engine() is None
+
+
+def test_own_vision_model_maps_outputs_back_to_the_photo() -> None:
+    import numpy as np
+
+    from reverse3d.ai_models import VisionModel
+
+    class Info:
+        name, version = "optiverse-1", "9.9.9"
+        manifest = {"input": {"size": 28}, "profiles": ["object", "character", "architecture", "landscape"]}
+
+    class Session:
+        def run(self, _outputs, feeds):  # type: ignore[no-untyped-def]
+            x = feeds["pixels"]
+            assert x.shape == (1, 3, 28, 28)
+            n = x.shape[2]
+            depth = np.tile(np.arange(n, dtype=np.float32), (n, 1))[None]
+            return depth, np.full((1, n, n), 5.0, np.float32), np.array([[0.0, 4.0, 0.0, 0.0]])
+
+    model = VisionModel(Session(), Info())
+    disp, mask, scene = model.run(np.zeros((40, 20, 3), np.uint8))  # portrait photo
+    assert disp.shape == (40, 20) and mask.shape == (40, 20)
+    assert max(scene, key=scene.__getitem__) == "character"
+    assert float(mask.min()) > 0.99  # sigmoid of the logits
+    assert model.label == "optiverse-1 9.9.9"

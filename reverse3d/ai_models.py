@@ -7,10 +7,15 @@ the format, keys or decryption.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from reverse3d.errors import DependencyMissingError, InputValidationError
+
+logger = logging.getLogger(__name__)
 
 
 def _core_models() -> Any:
@@ -46,3 +51,91 @@ def install_model(path: Path) -> dict[str, object]:
     except models.PackError as exc:
         raise InputValidationError(str(exc)) from exc
     return {"installed": info.to_dict()}
+
+
+# ─── Using the models while reconstructing ────────────────────────────────────
+
+#: preferred first: the Professional model when the licence allows it
+PREFERRED = ("revenus-1", "optiverse-1")
+_PROFILES = ("object", "character", "architecture", "landscape")
+
+
+class VisionModel:
+    """A Voxel Enterprise vision model (Optiverse / Revenus) ready to run on photos."""
+
+    def __init__(self, session: Any, info: Any) -> None:
+        self.session = session
+        self.name = str(info.name)
+        self.version = str(info.version)
+        spec = info.manifest.get("input", {})
+        self.size = int(spec.get("size", 518))
+        self.mean = np.asarray(spec.get("mean", (0.485, 0.456, 0.406)), np.float32)
+        self.std = np.asarray(spec.get("std", (0.229, 0.224, 0.225)), np.float32)
+        self.profiles = tuple(info.manifest.get("profiles", _PROFILES))
+
+    @property
+    def label(self) -> str:
+        return f"{self.name} {self.version}"
+
+    def run(self, rgb: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict[str, float]]:
+        """Disparity and subject probability (both H x W) and scene probabilities."""
+        import cv2
+
+        h, w = rgb.shape[:2]
+        side = max(h, w)
+        # Letterbox to a square (the model sees undistorted proportions).
+        canvas = np.empty((side, side, 3), np.uint8)
+        canvas[:] = (self.mean * 255).astype(np.uint8)
+        y0, x0 = (side - h) // 2, (side - w) // 2
+        canvas[y0 : y0 + h, x0 : x0 + w] = rgb
+        x = cv2.resize(canvas, (self.size, self.size), interpolation=cv2.INTER_AREA)
+        x = ((x.astype(np.float32) / 255.0 - self.mean) / self.std).transpose(2, 0, 1)[None]
+        depth, mask, scene = self.session.run(None, {"pixels": np.ascontiguousarray(x)})
+
+        def back(a: np.ndarray) -> np.ndarray:
+            full = cv2.resize(
+                np.asarray(a[0], np.float32), (side, side), interpolation=cv2.INTER_LINEAR
+            )
+            return np.ascontiguousarray(full[y0 : y0 + h, x0 : x0 + w])
+
+        logits = np.asarray(scene[0], np.float64)
+        probs = np.exp(logits - logits.max())
+        probs /= probs.sum()
+        prob_mask = 1.0 / (1.0 + np.exp(-back(mask)))
+        return (
+            back(depth),
+            prob_mask.astype(np.float32),
+            {p: float(v) for p, v in zip(self.profiles, probs, strict=False)},
+        )
+
+
+_loaded: VisionModel | bool | None = False
+
+
+def own_model() -> VisionModel | None:
+    """The best installed Voxel Enterprise model this licence can use, or None.
+
+    R3D_SKIP=models keeps the third-party base models (benchmarks).
+    """
+    global _loaded
+    if _loaded is not False:
+        return _loaded if isinstance(_loaded, VisionModel) else None
+    from reverse3d.reconstruction.silhouette import agent_skipped
+
+    _loaded = None
+    if agent_skipped("models"):
+        return None
+    try:
+        models = _core_models()
+    except DependencyMissingError:
+        return None
+    for name in PREFERRED:
+        try:
+            session, info = models.session(name)
+        except Exception as exc:  # not installed, licence, damaged: try the next one
+            logger.debug("Model %s unavailable: %s", name, exc)
+            continue
+        _loaded = VisionModel(session, info)
+        logger.info("Voxel Enterprise model: %s", _loaded.label)
+        return _loaded
+    return None
