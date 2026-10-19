@@ -314,6 +314,8 @@ _DEFAULT_LOOK = {
 }
 
 
+# Dense scenes (buildings, landscapes): most faces kept from the Poisson mesh.
+_MAX_DENSE_FACES = 1_000_000
 # Faces of the textured model for games, the web and viewers (model.stl keeps all).
 _PRODUCTION_FACES = 40000
 
@@ -333,6 +335,33 @@ def _production_mesh(run: _Run, mesh: Any) -> Any:
         return mesh
     run.details["production_mesh"] = dict(report)
     return light
+
+
+def _cap_faces(run: _Run, mesh_path: Path) -> Path:
+    """Dense scenes: Poisson can produce millions of faces (a house: 2.3 M, 117 MB).
+    Quadric decimation down to _MAX_DENSE_FACES keeps the shape and makes the
+    model usable (and every later step faster)."""
+    try:
+        import fast_simplification
+        import trimesh
+
+        mesh: Any = trimesh.load(mesh_path, process=False, force="mesh")
+        if len(mesh.faces) <= _MAX_DENSE_FACES:
+            return mesh_path
+        before = len(mesh.faces)
+        verts, faces = fast_simplification.simplify(
+            np.asarray(mesh.vertices, np.float64),
+            np.asarray(mesh.faces, np.int64),
+            target_reduction=1.0 - _MAX_DENSE_FACES / before,
+        )
+        out = mesh_path.with_name(mesh_path.stem + "_light.ply")
+        trimesh.Trimesh(verts, faces, process=False).export(out)
+        run.details["dense_decimation"] = {"faces_before": before, "faces_after": len(faces)}
+        logger.info("Dense mesh decimated: %d -> %d faces", before, len(faces))
+        return out
+    except Exception as exc:  # keep the full mesh rather than fail the job
+        logger.info("Dense mesh decimation skipped: %s", exc)
+        return mesh_path
 
 
 def _real_scale(run: _Run, mesh_path: Path, opt: RecipeOptions, upright: bool) -> float:
@@ -563,6 +592,7 @@ def _photos_to_model(run: _Run, src: Path, opt: RecipeOptions) -> MeshStats:
         )
     cloud = photo.dense_points_path or photo.sparse_points_path
     if not upright:
+        mesh_path = str(_cap_faces(run, Path(mesh_path)))
         # Dense scenes: colour from the photos themselves (sharp, independent of how
         # dense the cloud is); the cloud's colours are the fallback.
         colored_path = run.out / "reconstruction" / "mesh_color.ply"

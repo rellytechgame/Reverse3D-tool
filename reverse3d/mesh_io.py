@@ -21,7 +21,7 @@ import trimesh
 from trimesh.resolvers import FilePathResolver
 
 from reverse3d.config import Settings
-from reverse3d.errors import InputValidationError, SecurityViolationError
+from reverse3d.errors import InputValidationError, ProcessingError, SecurityViolationError
 from reverse3d.security import (
     MESH_EXTENSIONS,
     POINT_CLOUD_EXTENSIONS,
@@ -89,6 +89,11 @@ def load_geometry(path: str | Path, settings: Settings) -> Geometry:
         )
     except SecurityViolationError:
         raise
+    except MemoryError as exc:
+        raise ProcessingError(
+            f"Not enough memory to open {resolved.name}.",
+            hint="Close other programs, or simplify the mesh (fewer faces) first.",
+        ) from exc
     except Exception as exc:  # trimesh raises many exception types for bad files
         raise InputValidationError(f"Could not parse geometry file: {resolved.name}") from exc
 
