@@ -56,6 +56,8 @@ MODEL_REVISIONS: dict[str, str] = {
     "depth-anything/Depth-Anything-V2-Large-hf": "7581137eff8d4e94f6e796d3baea0e9fa79b22d2",
     "facebook/sam-vit-base": "70c1a07f894ebb5b307fd9eaaee97b9dfc16068f",
     "wkcn/TinyCLIP-ViT-40M-32-Text-19M-LAION400M": "95ec8197b3f2fe7f747865c61ca556cf0768b2f7",
+    # Studio's assistant: understands requests, Optiverse and the Core act (Apache-2.0).
+    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
 }
 
 
@@ -150,11 +152,12 @@ def is_offline(settings: Settings) -> bool:
 
 
 def _allowed_models() -> dict[str, tuple[str, str]]:
+    from reverse3d.assistant.brain import ALLOWED_ASSISTANTS
     from reverse3d.reconstruction.depth_estimation import ALLOWED_MODELS
     from reverse3d.vision.classifier import ALLOWED_CLASSIFIERS
     from reverse3d.vision.segmenter import ALLOWED_SEGMENTERS
 
-    return {**ALLOWED_MODELS, **ALLOWED_SEGMENTERS, **ALLOWED_CLASSIFIERS}
+    return {**ALLOWED_MODELS, **ALLOWED_SEGMENTERS, **ALLOWED_CLASSIFIERS, **ALLOWED_ASSISTANTS}
 
 
 def _default_model() -> str:
@@ -254,12 +257,13 @@ def prepare(settings: Settings, *, include_non_commercial: bool = False) -> dict
     Safe to run any time: models already on disk are skipped. It never raises
     for a missing optional stack; that is reported in the result instead.
     """
+    from reverse3d.assistant.brain import ASSISTANT_MODEL
     from reverse3d.vision.classifier import DEFAULT_CLASSIFIER
     from reverse3d.vision.segmenter import DEFAULT_SEGMENTER
 
-    # Depth (reliefs), segmentation (silhouettes) and the subject classifier,
-    # all commercial-friendly.
-    models = [_default_model(), DEFAULT_SEGMENTER, DEFAULT_CLASSIFIER]
+    # Depth (reliefs), segmentation (silhouettes), the subject classifier and
+    # Studio's assistant, all commercial-friendly.
+    models = [_default_model(), DEFAULT_SEGMENTER, DEFAULT_CLASSIFIER, ASSISTANT_MODEL]
     if include_non_commercial:
         models += [m for m in _allowed_models() if m not in models]
 

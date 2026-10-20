@@ -2,6 +2,22 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar]
+
+### Asistente de Studio (`reverse3d assistant`)
+- **Pide los retoques en palabras**, en español o en inglés, y el asistente los ejecuta con Optiverse y el Core:
+  - **fotos:** revisarlas (movidas, oscuras, quemadas, objeto cortado o pequeño), descartarlas o recuperarlas, mejorar su luz, ver el recorte de Optiverse y preparar el conjunto para reconstruir;
+  - **modelo 3D:** rellenar huecos, suavizar, quitar restos sueltos, simplificar, poner el tamaño real y deshacer;
+  - **captura:** consejos y qué fotos repetir.
+- **Nunca toca los originales:** las fotos preparadas van a `<work>/fotos-preparadas` y cada cambio del modelo es una versión nueva en `<work>/modelos`.
+- **Entiende frases libres** con una IA de lenguaje local y multilingüe: paraphrase-multilingual-MiniLM-L12-v2 (Apache-2.0, 471 MB, revisión fijada). Se descarga con el resto de la IA local.
+  - No genera texto: elige entre acciones fijas y solo actúa cuando está segura; si le falta un dato, pregunta.
+  - Los números, las unidades y los nombres de foto se leen con reglas exactas.
+  - Medido: 11 de 12 frases nunca vistas bien entendidas, en unos 25 ms.
+  - Antes se probó un modelo generativo pequeño (Qwen2.5-0.5B) y se descartó: elegía acciones equivocadas («hola» → deshacer) y tardaba 7–31 s.
+- **Uso:** `reverse3d assistant serve` (líneas JSON, para Studio) y `reverse3d assistant ask "…" --work … --photos … --job …`.
+- **La nitidez se juzga contra el resto de la serie:** una foto oscura ya no cuenta como movida.
+
 ## [0.18.0] — 2026-10-20
 
 ### Elegir con qué modelo trabajar

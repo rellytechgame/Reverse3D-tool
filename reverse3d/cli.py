@@ -971,6 +971,42 @@ def models_use_cmd(
     _run(ctx, lambda s: use_model(model))
 
 
+assistant_app = typer.Typer(
+    help="Studio's assistant: retouch photos and the 3D result by asking in plain words.",
+    no_args_is_help=True,
+)
+app.add_typer(assistant_app, name="assistant")
+
+
+@assistant_app.command("ask")
+def assistant_ask_cmd(
+    ctx: typer.Context,
+    message: str = typer.Argument(..., help='For example: "drop the blurred photos".'),
+    work: Path = typer.Option(..., "--work", help="Folder where the assistant keeps its changes."),
+    photos: Path | None = typer.Option(None, "--photos", help="The capture photos."),
+    job: Path | None = typer.Option(None, "--job", help="A reconstruction result folder."),
+    lang: str = typer.Option("es", "--lang", help="es or en."),
+) -> None:
+    """Answer one request (Studio keeps a conversation with ``assistant serve``)."""
+    from reverse3d.assistant.brain import Brain
+    from reverse3d.assistant.server import answer
+
+    def go(s: Any) -> dict[str, Any]:
+        request = {"message": message, "work": str(work), "lang": lang}
+        request |= {k: str(v) for k, v in (("photos", photos), ("job", job)) if v}
+        return answer(request, Brain(s), s)
+
+    _run(ctx, go)
+
+
+@assistant_app.command("serve")
+def assistant_serve_cmd() -> None:
+    """JSON lines on stdin/stdout for reverse3d Studio's chat."""
+    from reverse3d.assistant.server import serve
+
+    raise typer.Exit(serve())
+
+
 # ─── configuration ────────────────────────────────────────────────────────────
 
 

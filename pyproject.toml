@@ -109,6 +109,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S108"]
 "reverse3d/rendering/_blender_job.py" = ["N802"]
+# bilingual messages and request patterns read better on one line
+"reverse3d/assistant/*.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.10"
