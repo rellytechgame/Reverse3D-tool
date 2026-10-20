@@ -278,7 +278,7 @@ def review_photos(s: Session, _: NoArgs) -> Result:
     for item in review.values():
         for issue in item["issues"]:
             counts[issue] = counts.get(issue, 0) + 1
-    scenes = [v.get("scene") for v in review.values() if v.get("scene")]
+    scenes = [str(v["scene"]) for v in review.values() if v.get("scene")]
     lines = [
         t(
             s.lang,
