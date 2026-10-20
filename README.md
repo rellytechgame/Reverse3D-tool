@@ -340,6 +340,25 @@ Si las fotos están borrosas o falta una herramienta, **no reintenta en vano**: 
 
 ---
 
+## 💬 Asistente (chat de Studio)
+
+Pide los retoques con tus palabras, en español o en inglés. **Optiverse y el Core los ejecutan:**
+
+```bash
+reverse3d assistant ask "descarta las fotos movidas y prepara el resto" --work trabajo/ --photos fotos/
+reverse3d assistant ask "rellena los huecos y que mida 24 cm" --work trabajo/ --job resultados/taza/
+reverse3d assistant serve      # líneas JSON por stdin/stdout (lo usa reverse3d Studio)
+```
+
+| Área | Qué hace |
+|------|----------|
+| Fotos | Revisar (movidas, oscuras, quemadas, objeto cortado o pequeño), descartar o recuperar, mejorar la luz, ver el recorte de Optiverse, preparar el conjunto |
+| Modelo 3D | Rellenar huecos, suavizar, quitar restos, simplificar, tamaño real, deshacer |
+| Captura | Consejos y qué fotos repetir |
+
+- **Los originales nunca se tocan:** las fotos preparadas van a `<work>/fotos-preparadas` y cada cambio del modelo es una versión nueva en `<work>/modelos`.
+- **Entiende frases libres** con una IA de lenguaje local: paraphrase-multilingual-MiniLM-L12-v2 (Apache-2.0, 471 MB). Elige entre acciones fijas y, si no está segura, pregunta.
+
 ## 🧠 Reverse3D Core (motor exclusivo)
 
 **Reverse3D Core** es el motor de reconstrucción propio de Voxel Enterprise. Es **propietario** (no forma parte de este repositorio de código abierto) y viene **incluido en reverse3d Studio**, que lo instala solo.

@@ -2,7 +2,7 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
-## [Sin publicar]
+## [0.19.0] — 2026-10-20
 
 ### Asistente de Studio (`reverse3d assistant`)
 - **Pide los retoques en palabras**, en español o en inglés, y el asistente los ejecuta con Optiverse y el Core:
