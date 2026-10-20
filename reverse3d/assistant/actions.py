@@ -31,6 +31,24 @@ def t(lang: str, es: str, en: str) -> str:
     return es if lang == "es" else en
 
 
+SCENES_ES = {
+    "object": "objeto",
+    "character": "personaje",
+    "architecture": "arquitectura",
+    "landscape": "paisaje",
+}
+
+
+def scene_name(lang: str, scene: str) -> str:
+    return SCENES_ES.get(scene, scene) if lang == "es" else scene
+
+
+def num(lang: str, value: int) -> str:
+    """4.093 in Spanish, 4,093 in English."""
+    text = f"{value:,}"
+    return text.replace(",", ".") if lang == "es" else text
+
+
 # ─── session ──────────────────────────────────────────────────────────────────
 
 
@@ -276,7 +294,9 @@ def review_photos(s: Session, _: NoArgs) -> Result:
     ]
     if scenes:
         top = max(set(scenes), key=scenes.count)
-        lines.append(t(s.lang, f"Escena detectada: {top}.", f"Detected scene: {top}."))
+        lines.append(
+            t(s.lang, f"Escena detectada: {scene_name(s.lang, top)}.", f"Detected scene: {top}.")
+        )
     bad = {k: v for k, v in counts.items() if k in ISSUE_TEXT}
     if not bad:
         lines.append(
@@ -455,7 +475,7 @@ def preview_cutout(s: Session, a: PreviewArgs) -> Result:
         [
             t(
                 s.lang,
-                f"Así recorta Optiverse {files[0].name} (escena: {max(scene, key=scene.get)}).",
+                f"Así recorta Optiverse {files[0].name} (escena: {scene_name(s.lang, max(scene, key=scene.get))}).",
                 f"This is Optiverse's cut-out of {files[0].name} (scene: {max(scene, key=scene.get)}).",
             )
         ],
@@ -511,7 +531,7 @@ def _edit(
         t(s.lang, f"Listo: {verb_es}.", f"Done: {verb_en}."),
         t(
             s.lang,
-            f"Caras: {before['faces']:,} → {after['faces']:,}.",
+            f"Caras: {num(s.lang, before['faces'])} → {num(s.lang, after['faces'])}.",
             f"Faces: {before['faces']:,} → {after['faces']:,}.",
         ),
     ]
@@ -635,7 +655,7 @@ def model_info(s: Session, _: NoArgs) -> Result:
     lines = [
         t(
             s.lang,
-            f"{st['faces']:,} caras · {'cerrado' if st['watertight'] else 'con huecos'}.",
+            f"{num(s.lang, st['faces'])} caras · {'cerrado' if st['watertight'] else 'con huecos'}.",
             f"{st['faces']:,} faces · {'watertight' if st['watertight'] else 'has holes'}.",
         ),
     ]

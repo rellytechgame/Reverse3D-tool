@@ -2,6 +2,12 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.19.1] — 2026-10-20
+
+### Asistente
+- Responde a los saludos aunque la IA de lenguaje aún se esté cargando, y un saludo junto a una petición ya no añade la ayuda.
+- En español, los tipos de escena salen traducidos («objeto») y los números con su formato («4.093»).
+
 ## [0.19.0] — 2026-10-20
 
 ### Asistente de Studio (`reverse3d assistant`)
