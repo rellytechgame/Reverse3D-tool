@@ -2,6 +2,12 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.17.1] — 2026-10-20
+
+### Recorte con el modelo propio
+- Con **Optiverse 1 v0.2.0** o posterior instalado, el **recorte del objeto** también lo hace nuestro modelo, y SAM deja de cargarse. Solo ocurre si el modelo trae la marca firmada `mask_ready`, que se concede cuando la prueba con fotos reales coincide con SAM al 94 % o más y deja fuera del recorte casi todo el fondo (0,4 %).
+- El recorte se queda solo con el objeto señalado (descarta muebles u otros objetos sueltos) y rellena los huecos interiores, como un logotipo que parecía fondo.
+
 ## [0.17.0] — 2026-10-19
 
 ### Modelos propios de Voxel Enterprise
