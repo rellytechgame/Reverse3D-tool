@@ -137,12 +137,13 @@ def test_own_segmenter_keeps_only_the_hinted_object() -> None:
         def run(self, rgb):  # type: ignore[no-untyped-def]
             prob = np.zeros(rgb.shape[:2], np.float32)
             prob[10:30, 10:30] = 0.9  # the object
+            prob[18:22, 18:22] = 0.1  # a logo that looks like background
             prob[50:60, 50:60] = 0.9  # a chair in the background
             return None, prob, {}
 
     seg = OwnSegmenter(Model())  # type: ignore[arg-type]
     state = seg.embed(np.zeros((80, 80, 3), np.uint8))
-    mask = seg.segment(state, (0, 0, 79, 79), (20, 20))
-    assert mask[20, 20] == 255 and mask[55, 55] == 0
+    mask = seg.segment(state, (0, 0, 79, 79), (12, 12))
+    assert mask[20, 20] == 255 and mask[55, 55] == 0  # hole filled, chair dropped
     # Outside the box nothing is kept, even the object.
     assert seg.segment(state, (40, 40, 79, 79), (55, 55))[20, 20] == 0

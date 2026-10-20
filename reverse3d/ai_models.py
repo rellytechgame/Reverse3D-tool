@@ -138,6 +138,13 @@ class OwnSegmenter:
             py = min(max(int(point[1]), 0), mask.shape[0] - 1)
             label = int(labels[py, px]) or 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
             mask = (labels == label).astype(np.uint8)
+        # A solid object has no holes in its outline (a printed logo can look like
+        # background): fill everything the outside cannot reach.
+        outside = np.zeros((mask.shape[0] + 2, mask.shape[1] + 2), np.uint8)
+        flood = np.pad(mask, 1).astype(np.uint8)
+        cv2.floodFill(flood, outside, (0, 0), 1)
+        holes = flood[1:-1, 1:-1] == 0
+        mask[holes] = 1
         return np.where(mask > 0, 255, 0).astype(np.uint8)
 
 
