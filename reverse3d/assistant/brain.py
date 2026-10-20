@@ -136,7 +136,7 @@ _RULES: list[tuple[str, str]] = [
         r"\b(consejo|falta|que fotos tomo|como (?:tomo|saco|hago) las fotos|advice|missing|tips|how to capture)",
     ),
     ("model_info", r"\b(info|estado del modelo|cuantas caras|stats|faces)"),
-    ("help", r"\b(ayuda|que puedes|help|what can you)"),
+    ("help", r"\b(ayuda|que puedes|help|what can you|hola|buenas|hello|hi|hey)\b"),
 ]
 
 
@@ -193,6 +193,8 @@ def rules(message: str) -> Plan:
         plan.actions.append((name, args))
         if name == "undo":
             break
+    if len(plan.actions) > 1:  # "hola, …": the greeting is not a request
+        plan.actions = [a for a in plan.actions if a[0] != "help"]
     return plan
 
 

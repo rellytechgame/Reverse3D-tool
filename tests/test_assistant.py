@@ -61,6 +61,9 @@ def test_rules_read_spanish_and_english_requests() -> None:
     )
     assert rules("simplifícalo a la mitad").actions == [("simplify_model", {"percent": 50})]
     assert rules("deshacer").actions == [("undo", {})]
+    assert rules("hola").actions == [("help", {})]
+    assert rules("hola, revisa las fotos").actions == [("review_photos", {})]
+    assert rules("this hint").actions == []  # "hi" only as a whole word
 
 
 def test_review_exclude_and_prepare_never_touch_originals(session: actions.Session) -> None:
