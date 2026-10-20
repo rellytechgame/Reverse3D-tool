@@ -7,7 +7,10 @@ the format, keys or decryption.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -36,9 +39,79 @@ def _core_models() -> Any:
         ) from exc
 
 
+AUTO = "auto"
+#: overrides the saved choice for one run, e.g. REVERSE3D_MODEL=optiverse-1@0.2.0
+MODEL_ENV = "REVERSE3D_MODEL"
+
+
+def _choice_path() -> Path:
+    from reverse3d.userconfig import home_dir
+
+    return home_dir() / "models" / "selected.json"
+
+
+def selected_model() -> str:
+    """The pack chosen to work with: "auto", "name" (its newest) or "name@version"."""
+    raw = os.environ.get(MODEL_ENV, "").strip()
+    if not raw:
+        try:
+            raw = str(json.loads(_choice_path().read_text(encoding="utf-8")).get("model", ""))
+        except (OSError, ValueError, AttributeError):
+            raw = ""
+    return raw.strip().lower() or AUTO
+
+
+def _rank(entry: dict[str, Any]) -> tuple[int, int, tuple[int, ...]]:
+    """Automatic order: Professional before free, newer generation, newer version."""
+    match = re.search(r"-(\d+)", str(entry.get("name", "")))
+    version = tuple(int(n) for n in re.findall(r"\d+", str(entry.get("version", ""))))
+    return (int(entry.get("tier") == "pro"), int(match.group(1)) if match else 0, version)
+
+
+def _matches(entry: dict[str, Any], spec: str) -> bool:
+    name, _, version = spec.partition("@")
+    return entry.get("name") == name and (not version or entry.get("version") == version)
+
+
+def choose(entries: list[dict[str, Any]], spec: str) -> dict[str, Any] | None:
+    """The pack to work with among the installed ones (None: the base models)."""
+    vision = [e for e in entries if e.get("usable") and "depth" in (e.get("tasks") or ())]
+    if spec != AUTO:
+        picked = sorted((e for e in vision if _matches(e, spec)), key=_rank)
+        if picked:
+            return picked[-1]
+        logger.warning("Model %s is not installed or not allowed; choosing automatically.", spec)
+    return max(vision, key=_rank, default=None)
+
+
 def list_models() -> dict[str, object]:
-    """Installed packs and whether this licence can use them."""
-    return {"models": _core_models().list_packs()}
+    """Installed packs, whether this licence can use them and which one is in use.
+
+    Older versions stay installed so you can go back to one with ``models use``.
+    """
+    entries = _core_models().list_packs()
+    spec = selected_model()
+    active = choose(entries, spec)
+    for entry in entries:
+        entry["active"] = entry is active
+    return {"models": entries, "selected": spec}
+
+
+def use_model(spec: str) -> dict[str, object]:
+    """Remember which pack to work with ("auto", "name" or "name@version")."""
+    spec = spec.strip().lower() or AUTO
+    entries = _core_models().list_packs()
+    if spec != AUTO and not any(_matches(e, spec) and e.get("usable") for e in entries):
+        raise InputValidationError(
+            f"The model {spec} is not installed or your licence cannot use it.",
+            hint="See reverse3d models list.",
+        )
+    path = _choice_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"model": spec}) + "\n", encoding="utf-8")
+    global _loaded
+    _loaded = False
+    return {"selected": spec, "active": choose(entries, spec)}
 
 
 def install_model(path: Path) -> dict[str, object]:
@@ -55,8 +128,6 @@ def install_model(path: Path) -> dict[str, object]:
 
 # ─── Using the models while reconstructing ────────────────────────────────────
 
-#: preferred first: the Professional model when the licence allows it
-PREFERRED = ("revenus-1", "optiverse-1")
 _PROFILES = ("object", "character", "architecture", "landscape")
 
 
@@ -168,13 +239,20 @@ def own_model() -> VisionModel | None:
         models = _core_models()
     except DependencyMissingError:
         return None
-    for name in PREFERRED:
-        try:
-            session, info = models.session(name)
-        except Exception as exc:  # not installed, licence, damaged: try the next one
-            logger.debug("Model %s unavailable: %s", name, exc)
-            continue
-        _loaded = VisionModel(session, info)
-        logger.info("Voxel Enterprise model: %s", _loaded.label)
-        return _loaded
-    return None
+    try:
+        entry = choose(models.list_packs(), selected_model())
+        if entry is None:
+            return None
+        import onnxruntime as ort
+
+        info, model = models.decrypt(Path(str(entry["path"])))
+        available = ort.get_available_providers()
+        preferred = ["CUDAExecutionProvider", "DmlExecutionProvider", "CPUExecutionProvider"]
+        providers = [p for p in preferred if p in available] or available
+        session = ort.InferenceSession(model, providers=providers)
+    except Exception as exc:  # licence, damaged pack, runtime: keep the base models
+        logger.warning("Voxel Enterprise model unavailable: %s", exc)
+        return None
+    _loaded = VisionModel(session, info)
+    logger.info("Voxel Enterprise model: %s", _loaded.label)
+    return _loaded

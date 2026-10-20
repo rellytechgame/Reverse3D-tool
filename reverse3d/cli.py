@@ -958,6 +958,19 @@ def models_install_cmd(
     _run(ctx, lambda s: install_model(pack))
 
 
+@models_app.command("use")
+def models_use_cmd(
+    ctx: typer.Context,
+    model: str = typer.Argument(
+        ..., help="auto (recommended), a name such as optiverse-1, or name@version."
+    ),
+) -> None:
+    """Choose the model pack to work with; older versions stay installed."""
+    from reverse3d.ai_models import use_model
+
+    _run(ctx, lambda s: use_model(model))
+
+
 # ─── configuration ────────────────────────────────────────────────────────────
 
 

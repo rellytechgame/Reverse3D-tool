@@ -2,6 +2,14 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.18.0] — 2026-10-20
+
+### Elegir con qué modelo trabajar
+- `reverse3d models use <modelo>`: elige el modelo propio con el que se reconstruye. Puede ser `auto` (recomendado), un nombre como `optiverse-1` (su versión más reciente) o una versión concreta como `optiverse-1@0.1.0`. Se guarda en `~/.reverse3d/models/selected.json`; la variable `REVERSE3D_MODEL` lo cambia para una sola ejecución.
+- Las versiones anteriores se conservan al instalar una nueva, así que siempre se puede volver a una.
+- Modo `auto`: el Profesional antes que el gratuito (si la licencia lo permite), luego la generación más nueva (Optiverse 2 antes que Optiverse 1) y la versión más reciente. Si el modelo elegido ya no está instalado o la licencia no lo permite, elige solo y lo avisa en el registro.
+- `reverse3d models list` indica cuál está en uso (`active`) y qué se eligió (`selected`).
+
 ## [0.17.1] — 2026-10-20
 
 ### Recorte con el modelo propio
