@@ -57,7 +57,9 @@ MODEL_REVISIONS: dict[str, str] = {
     "facebook/sam-vit-base": "70c1a07f894ebb5b307fd9eaaee97b9dfc16068f",
     "wkcn/TinyCLIP-ViT-40M-32-Text-19M-LAION400M": "95ec8197b3f2fe7f747865c61ca556cf0768b2f7",
     # Studio's assistant: understands requests, Optiverse and the Core act (Apache-2.0).
-    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2": "e8f8c211226b894fcb81acc59f3b34ba3efd5f42",
+    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2": (
+        "e8f8c211226b894fcb81acc59f3b34ba3efd5f42"
+    ),
 }
 
 
