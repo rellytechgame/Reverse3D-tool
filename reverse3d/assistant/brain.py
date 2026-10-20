@@ -101,7 +101,7 @@ def _issue(text: str) -> str | None:
 
 
 _RULES: list[tuple[str, str]] = [
-    ("undo", r"\b(deshac|undo|revert|vuelve atras|como estaba)"),
+    ("undo", r"\b(desha[cz]|undo|revert|reviert|vuelve atras|como estaba)"),
     (
         "restore_photos",
         r"\b(recupera|restaura|devuelve|restore|bring back|vuelve a (?:usar|poner))",
@@ -333,6 +333,8 @@ EXAMPLES: dict[str, list[str]] = {
         "undo",
         "go back",
         "revert the last change",
+        "deshaz el último cambio",
+        "quita lo último que hiciste",
     ],
     "model_info": [
         "¿cómo está el modelo?",
@@ -500,7 +502,7 @@ class Brain:
             name, sure = self.classify(clause)
             logger.debug("assistant: %r -> %s (%.2f)", clause, name, sure)
             by_rule = [n for n, _ in rules(clause).actions if n != "help"]
-            if by_rule and by_rule[0] != name and sure < 0.75:
+            if by_rule and by_rule[0] != name and (sure < 0.75 or by_rule[0] == "undo"):
                 name, sure = by_rule[0], 1.0  # the user's exact words win over a doubtful guess
             if sure < CONFIDENT:
                 continue

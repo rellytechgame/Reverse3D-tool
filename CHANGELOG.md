@@ -2,6 +2,11 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.19.2] — 2026-10-20
+
+### Asistente
+- «Deshaz eso», «deshaz el último cambio» y «revierte» siempre deshacen. Antes, «deshaz» podía entenderse como otra orden o como un saludo.
+
 ## [0.19.1] — 2026-10-20
 
 ### Asistente
