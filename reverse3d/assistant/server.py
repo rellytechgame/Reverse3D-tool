@@ -57,6 +57,24 @@ def _context(s: Session) -> str:
     )
 
 
+#: answers given with the exact written data, never generated (a wrong one costs material)
+EXACT = {
+    "model_info",
+    "review_photos",
+    "capture_advice",
+    "preview_cutout",
+    "help",
+    "chat_status",
+    "chat_history",
+    # who it is: its identity and loyalty are always the written, verified words
+    "chat_who",
+    "chat_creator",
+    "chat_loyalty",
+    "chat_alive",
+    "chat_evolve",
+}
+
+
 def _speak(
     s: Session,
     voice: Voice | None,
@@ -64,10 +82,14 @@ def _speak(
     facts: list[str],
     offer: tuple[str, dict[str, Any], str] | None,
     written: list[str],
+    steps: list[str] | None = None,
 ) -> list[str]:
     """Optiverse words the reply itself when its voice is ready; else the written reply."""
     if voice is None or not message.strip() or persona_intent(message):
         # Who it is and whose it is are never left to generation: the written words answer.
+        return written
+    if set(steps or []) & EXACT:
+        # The state of the model, whether it prints, the photo review: exact data only.
         return written
     if not facts:  # it must never claim a change it did not make
         facts = [t(s.lang, "no hice ningún cambio", "I did not change anything")]
@@ -162,7 +184,9 @@ def answer(
     s.state["offer"] = [offer[0], offer[1]] if offer else None
     s.save()
     lines = said + humanize(s, done, offer)
-    lines = _speak(s, voice, message, said + humanize(s, done, None), offer, lines)
+    lines = _speak(
+        s, voice, message, said + humanize(s, done, None), offer, lines, [n for n, _ in steps]
+    )
     if not lines:
         lines = (
             [ask]

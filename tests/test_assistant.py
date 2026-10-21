@@ -388,3 +388,20 @@ def test_identity_is_never_left_to_generation_and_invented_numbers_are_dropped(
     facts = ["acción fill_holes: Caras: 52 300 → 52 340."]
     assert grounded("Cerré los huecos: ahora tiene 52 340 caras.", facts, [], "rellena")
     assert not grounded("Ahora tiene 900 caras.", facts, [], "rellena")
+
+
+def test_the_state_of_the_model_is_always_the_exact_written_data(
+    session: actions.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    brain = Brain(Settings())
+    monkeypatch.setattr(brain, "_load", lambda: False)
+    fake = _FakeVoice()
+    request = {
+        "work": str(session.work),
+        "photos": str(session.photos),
+        "job": str(session.job),
+        "lang": "es",
+        "message": "¿está listo para imprimir?",
+    }
+    out = answer(request, brain, Settings(), None, fake)  # type: ignore[arg-type]
+    assert fake.calls == [] and "caras" in out["reply"]  # the measured state, not a guess
