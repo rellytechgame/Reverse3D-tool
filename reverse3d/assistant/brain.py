@@ -19,6 +19,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
+from reverse3d.assistant.persona import PERSONA_EXAMPLES, Memory, persona_intent
 from reverse3d.assistant.talk import CHAT_EXAMPLES
 from reverse3d.config import Settings
 
@@ -515,6 +516,8 @@ class Brain:
         self._labels: list[str] = []
         self._failed = False
         self._lock = LOAD_LOCK
+        #: what Optiverse learnt from this person (None: it does not learn, e.g. tests)
+        self.memory: Memory | None = None
 
     @property
     def available(self) -> bool:
@@ -549,9 +552,12 @@ class Brain:
             self._tokenizer = AutoTokenizer.from_pretrained(str(path), local_files_only=True)  # nosec B615
             encoder: Any = AutoModel.from_pretrained(str(path), local_files_only=True)  # nosec B615
             self._encoder = encoder.eval()
-            bank = {**EXAMPLES, **CHAT_EXAMPLES}
-            self._labels = [name for name, phrases in bank.items() for _ in phrases]
-            self._bank = self._embed([p for phrases in bank.values() for p in phrases])
+            bank = {**EXAMPLES, **CHAT_EXAMPLES, **PERSONA_EXAMPLES}
+            pairs = [(name, p) for name, phrases in bank.items() for p in phrases]
+            if self.memory:  # the words this person taught it
+                pairs += [(name, p) for p, name in self.memory.learned.items()]
+            self._labels = [name for name, _ in pairs]
+            self._bank = self._embed([p for _, p in pairs])
             return True
         except Exception as exc:  # no model / no torch: the rules still work
             logger.info("Assistant language model unavailable: %s", exc)
@@ -576,6 +582,16 @@ class Brain:
         with self._lock:
             return self._load()
 
+    def learn(self, text: str, action: str) -> None:
+        """A phrase this person uses for an action: understood from now on."""
+        if self._encoder is None or self._lock.locked():
+            return  # it is in the memory: the next load includes it
+        import torch
+
+        with self._lock:
+            self._bank = torch.cat([self._bank, self._embed([text])])
+            self._labels.append(action)
+
     def classify(self, text: str) -> tuple[str, float]:
         """The action the text most likely means and how sure the model is (0-1)."""
         sims = (self._embed([text]) @ self._bank.T)[0]
@@ -586,9 +602,14 @@ class Brain:
         return name, best[name]
 
     def understand(self, message: str, context: str = "") -> Plan:
-        quick = short_reply(message)
+        quick = short_reply(message) or persona_intent(message)
         if quick:
             return Plan(actions=[(quick, {})], source="rules")
+        learnt = self.memory.lookup(message) if self.memory else None
+        if learnt:  # exactly what this person said before
+            step = _with_args(learnt, message)
+            if not isinstance(step, str):
+                return Plan(actions=[step], source="learned")
         exact = rules(message)
         if not self.ready():
             return exact

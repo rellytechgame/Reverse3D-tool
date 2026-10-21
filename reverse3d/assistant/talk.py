@@ -17,6 +17,8 @@ import time
 from typing import Any
 
 from reverse3d.assistant.actions import ACTIONS, Result, Session, num, run_action, t
+from reverse3d.assistant.persona import PERSONA_EXAMPLES, Memory, who
+from reverse3d.assistant.persona import reply as persona_reply
 
 #: conversation intents the language model recognises next to the actions
 CHAT_EXAMPLES: dict[str, list[str]] = {
@@ -251,9 +253,13 @@ def more_or_less(s: Session, more: bool) -> list[tuple[str, dict[str, Any]]] | s
     return [("undo", {})]
 
 
-def chat(s: Session, intent: str) -> tuple[list[str], list[tuple[str, dict[str, Any]]]]:
+def chat(
+    s: Session, intent: str, memory: Memory | None = None
+) -> tuple[list[str], list[tuple[str, dict[str, Any]]]]:
     """Reply to a conversation intent; may return actions to run (yes / more / less)."""
     lang = s.lang
+    if intent in PERSONA_EXAMPLES:
+        return persona_reply(s, intent, memory), []
     if intent == "chat_yes":
         offer = s.state.get("offer")
         if offer:
@@ -297,13 +303,7 @@ def chat(s: Session, intent: str) -> tuple[list[str], list[tuple[str, dict[str, 
             )
         ], []
     if intent == "chat_who":
-        return [
-            t(
-                lang,
-                "Soy Optiverse, el modelo de IA de Voxel Enterprise. Miro tus fotos —profundidad, recorte del objeto y tipo de escena— y, junto con Reverse3D Core, retoco tus modelos 3D. Todo pasa en tu equipo: nada sale de él.",
-                "I'm Optiverse, Voxel Enterprise's AI model. I look at your photos —depth, the subject cut-out and the scene type— and, together with Reverse3D Core, I retouch your 3D models. Everything happens on your computer: nothing leaves it.",
-            )
-        ], []
+        return [who(lang)], []
     if intent == "chat_history":
         items = [h for h in s.state.get("history", []) if h["ok"]][-6:]
         if not items:

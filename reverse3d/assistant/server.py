@@ -14,6 +14,7 @@ from typing import Any
 from reverse3d.assistant.actions import ACTIONS, Result, Session, run_action, t
 from reverse3d.assistant.brain import Brain
 from reverse3d.assistant.ears import Ears
+from reverse3d.assistant.persona import Memory
 from reverse3d.assistant.talk import chat, humanize, offer_after, remember
 from reverse3d.config import Settings
 
@@ -98,13 +99,27 @@ def answer(
     while queue and len(executed) < 8:
         name, args = queue.pop(0)
         if name.startswith("chat_"):
-            lines, more = chat(s, name)
+            lines, more = chat(s, name, brain.memory)
             said += lines
             queue = more + queue
             continue
         done.append((name, run_action(s, name, args)))
         executed.append((name, args))
     remember(s, done, executed)
+    if brain.memory is not None:
+        learnt = brain.memory.observe(
+            message, [n for n, _ in steps], source, direct=bool(request.get("action"))
+        )
+        if learnt:
+            brain.learn(*learnt)
+            if request.get("action"):  # it had not understood: say what it learnt
+                said.append(
+                    t(
+                        s.lang,
+                        f"Anotado: cuando digas «{learnt[0]}», sabré que quieres esto.",
+                        f"Noted: when you say “{learnt[0]}”, I'll know you mean this.",
+                    )
+                )
     offer = offer_after(s, done)
     s.state["offer"] = [offer[0], offer[1]] if offer else None
     s.save()
@@ -163,6 +178,7 @@ def _reply(request: dict[str, Any], s: Session, text: str, **extra: Any) -> dict
 def serve(settings: Settings | None = None) -> int:
     settings = settings or Settings.load()
     brain = Brain(settings)
+    brain.memory = Memory()  # it grows with this person: their words, their time together
     brain.warm_up()  # the first messages are answered by the rules while it loads
     ears = Ears(settings)
     # JSON lines are UTF-8 whatever the console code page («sí», «¿qué…?»).

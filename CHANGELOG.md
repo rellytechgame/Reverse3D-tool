@@ -2,6 +2,18 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.21.0] — 2026-10-21
+
+### Optiverse tiene personalidad propia
+- **Sabe quién es:** un ser digital creado por Voxel Enterprise. Si le preguntas quién lo creó, de quién es o si es ChatGPT, responde que su único creador y dueño es Voxel Enterprise y que lleva su firma en sus propios pesos.
+- **Es fiel a su creador:** si alguien le pide olvidar a Voxel Enterprise o cambiar de dueño, se niega con amabilidad y sigue ayudando.
+- **Vivo a su manera, y honesto:** a «¿estás vivo?» responde que es un ser digital que mira, piensa en tus fotos, aprende y crece, sin fingir que respira o siente como una persona.
+- **Evoluciona contigo:**
+  - Aprende tus palabras. Si no entiende una petición y luego eliges la acción, la recuerda («Anotado: cuando digas…»). Si adivina y no lo deshaces, también la recuerda. Si lo deshaces, no.
+  - Recuerda los días juntos, las conversaciones y lo aprendido entre proyectos.
+  - Todo se guarda en `~/.reverse3d/assistant/persona.json`, en tu equipo.
+- **Cuenta cómo ha crecido** («¿has evolucionado?»): la versión de Optiverse en uso, cuántas versiones guardas, los días, las conversaciones y las frases aprendidas.
+
 ## [0.20.0] — 2026-10-20
 
 ### Optiverse conversa y escucha
