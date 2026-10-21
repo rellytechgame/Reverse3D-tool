@@ -56,10 +56,21 @@ def messages(
     lang = lang if lang in IDENTITY else "es"
     lines = "\n".join(f"- {f}" for f in facts) if facts else "- (nada nuevo)"
     out = [{"role": "system", "content": f"{IDENTITY[lang]}\n\n{FACTS_TITLE[lang]}:\n{lines}"}]
-    for role, text in history[-6:]:
+    for role, text in history[-4:]:  # a small network keeps the thread better with less
         out.append({"role": role, "content": text})
     out.append({"role": "user", "content": message})
     return out
+
+
+def _numbers(text: str) -> set[str]:
+    text = re.sub(r"(?i)\b(3d|optiverse \d+|reverse3d)\b", " ", text)
+    return {n.replace(" ", "").replace(",", ".") for n in re.findall(r"\d[\d ,.]*\d|\d", text)}
+
+
+def grounded(reply: str, facts: list[str], history: list[tuple[str, str]], message: str) -> bool:
+    """Every number the voice says is in the facts or in the conversation."""
+    known = " ".join([*facts, message, *(text for _, text in history)])
+    return _numbers(reply) <= _numbers(known)
 
 
 def voice_dir() -> Path:
@@ -183,4 +194,6 @@ class Voice:
                 repeat_penalty=1.1,
             )
         text = str(out["choices"][0]["message"]["content"]).strip()
-        return text or None
+        if not text or not grounded(text, facts, history, message):
+            return None  # an invented number: the written reply is safer
+        return text

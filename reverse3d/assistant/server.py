@@ -15,7 +15,7 @@ from typing import Any
 from reverse3d.assistant.actions import ACTIONS, Result, Session, run_action, t
 from reverse3d.assistant.brain import Brain
 from reverse3d.assistant.ears import Ears
-from reverse3d.assistant.persona import Memory
+from reverse3d.assistant.persona import Memory, persona_intent
 from reverse3d.assistant.talk import chat, humanize, offer_after, remember
 from reverse3d.assistant.voice import Voice
 from reverse3d.config import Settings
@@ -66,7 +66,8 @@ def _speak(
     written: list[str],
 ) -> list[str]:
     """Optiverse words the reply itself when its voice is ready; else the written reply."""
-    if voice is None or not message.strip():
+    if voice is None or not message.strip() or persona_intent(message):
+        # Who it is and whose it is are never left to generation: the written words answer.
         return written
     if not facts:  # it must never claim a change it did not make
         facts = [t(s.lang, "no hice ningún cambio", "I did not change anything")]
