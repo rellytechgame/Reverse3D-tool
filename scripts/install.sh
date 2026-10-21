@@ -308,6 +308,13 @@ for ex in $OPTIONAL; do
 done
 EXTRAS="$INSTALLED"
 
+# Optiverse's own voice runs on llama.cpp (MIT): a prebuilt wheel when one exists.
+say "Installing Optiverse's voice runtime (llama.cpp)"
+if ! install_pkgs "llama-cpp-python>=0.3.16" --only-binary ":all:" --extra-index-url "https://abetlen.github.io/llama-cpp-python/whl/cpu"; then
+  warn "llama.cpp could not be installed: Optiverse answers with its written replies."
+  add_missing "Optiverse voice runtime (llama.cpp)"
+fi
+
 # ─── 4. Command link ──────────────────────────────────────────────────────────
 mkdir -p "$HOME/.local/bin"
 ln -sf "$EXE" "$HOME/.local/bin/reverse3d"

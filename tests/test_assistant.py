@@ -292,3 +292,77 @@ def test_a_wrong_guess_is_never_learnt(tmp_path: Path) -> None:
     memory.observe("déjalo suavecito", ["smooth_model"], "model", direct=False)
     memory.observe("gracias", ["chat_thanks"], "rules", direct=False)  # it was right
     assert memory.lookup("dejalo suavecito") == "smooth_model"
+
+
+def _signed_voice(folder: Path, version: str, key: Any) -> Path:
+    import base64
+    import hashlib
+
+    folder.mkdir(parents=True, exist_ok=True)
+    gguf = folder / f"optiverse-talk-1-{version}.gguf"
+    gguf.write_bytes(f"voice {version}".encode())
+    record = {
+        "owner": "Voxel Enterprise",
+        "model": "optiverse-talk-1",
+        "version": version,
+        "file_sha256": hashlib.sha256(gguf.read_bytes()).hexdigest(),
+    }
+    message = json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    record["signature"] = base64.b64encode(key.sign(message.encode())).decode()
+    gguf.with_name(gguf.stem + ".provenance.json").write_text(json.dumps(record))
+    return gguf
+
+
+def test_only_a_genuine_voice_signed_by_voxel_enterprise_is_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from reverse3d.assistant import voice
+
+    key = Ed25519PrivateKey.generate()
+    raw = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    monkeypatch.setattr(voice, "PUBLIC_KEY", raw)
+    folder = tmp_path / "talk"
+    _signed_voice(folder, "0.1.0", key)
+    newest = _signed_voice(folder, "0.2.0", key)
+    found = voice.find_voice(folder)
+    assert found and found[0] == newest
+    newest.write_bytes(b"tampered")  # a changed file is ignored: the older genuine one is used
+    found = voice.find_voice(folder)
+    assert found and found[0].name == "optiverse-talk-1-0.1.0.gguf"
+    stranger = _signed_voice(tmp_path / "other", "0.9.0", Ed25519PrivateKey.generate())
+    assert voice.verify(stranger) is None  # signed by someone else
+    with pytest.raises(ValueError):
+        voice.install_voice(stranger, folder)
+
+
+class _FakeVoice:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[str], list[tuple[str, str]], str]] = []
+
+    def say(self, lang: str, facts: list[str], history: list[tuple[str, str]], message: str) -> str:
+        self.calls.append((lang, facts, history, message))
+        return "¡Hecho! Cerré los huecos." if "huecos" in message else "Claro, aquí estoy."
+
+
+def test_optiverse_words_its_replies_from_real_facts_and_remembers_the_talk(
+    session: actions.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    brain = Brain(Settings())
+    monkeypatch.setattr(brain, "_load", lambda: False)
+    fake = _FakeVoice()
+    request = {
+        "work": str(session.work),
+        "photos": str(session.photos),
+        "job": str(session.job),
+        "lang": "es",
+    }
+    done = answer({**request, "message": "rellena los huecos"}, brain, Settings(), None, fake)  # type: ignore[arg-type]
+    assert done["reply"].startswith("¡Hecho! Cerré los huecos.") and "suavizo" in done["reply"]
+    assert any("Caras" in f for f in fake.calls[0][1])  # what the action really reported
+    chat = answer({**request, "message": "me gusta tu estilo"}, brain, Settings(), None, fake)  # type: ignore[arg-type]
+    assert chat["reply"] == "Claro, aquí estoy."
+    assert fake.calls[1][1] == ["no hice ningún cambio"]  # never claims a change
+    assert fake.calls[1][2][0] == ("user", "rellena los huecos")  # it keeps the thread

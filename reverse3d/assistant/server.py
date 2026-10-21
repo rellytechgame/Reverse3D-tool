@@ -7,6 +7,7 @@ line on stdout, so the language model is loaded only once per session.
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,10 @@ from reverse3d.assistant.brain import Brain
 from reverse3d.assistant.ears import Ears
 from reverse3d.assistant.persona import Memory
 from reverse3d.assistant.talk import chat, humanize, offer_after, remember
+from reverse3d.assistant.voice import Voice
 from reverse3d.config import Settings
+
+logger = logging.getLogger(__name__)
 
 #: chips Studio shows under each answer
 SUGGESTIONS = {
@@ -53,8 +57,41 @@ def _context(s: Session) -> str:
     )
 
 
+def _speak(
+    s: Session,
+    voice: Voice | None,
+    message: str,
+    facts: list[str],
+    offer: tuple[str, dict[str, Any], str] | None,
+    written: list[str],
+) -> list[str]:
+    """Optiverse words the reply itself when its voice is ready; else the written reply."""
+    if voice is None or not message.strip():
+        return written
+    if not facts:  # it must never claim a change it did not make
+        facts = [t(s.lang, "no hice ningún cambio", "I did not change anything")]
+    history = [(str(r), str(x)) for r, x in s.state.get("talk", [])]
+    try:
+        text = voice.say(s.lang, facts, history, message)
+    except Exception as exc:  # the written reply is always there
+        logger.warning("Optiverse voice failed: %s", exc)
+        text = None
+    if not text:
+        return written
+    lines = [text] + ([offer[2]] if offer and offer[2] not in text else [])
+    s.state["talk"] = [*s.state.get("talk", []), ["user", message], ["assistant", " ".join(lines)]][
+        -12:
+    ]
+    s.save()
+    return lines
+
+
 def answer(
-    request: dict[str, Any], brain: Brain, settings: Settings, ears: Ears | None = None
+    request: dict[str, Any],
+    brain: Brain,
+    settings: Settings,
+    ears: Ears | None = None,
+    voice: Voice | None = None,
 ) -> dict[str, Any]:
     work = request.get("work")
     if not work:
@@ -124,6 +161,7 @@ def answer(
     s.state["offer"] = [offer[0], offer[1]] if offer else None
     s.save()
     lines = said + humanize(s, done, offer)
+    lines = _speak(s, voice, message, said + humanize(s, done, None), offer, lines)
     if not lines:
         lines = (
             [ask]
@@ -181,6 +219,8 @@ def serve(settings: Settings | None = None) -> int:
     brain.memory = Memory()  # it grows with this person: their words, their time together
     brain.warm_up()  # the first messages are answered by the rules while it loads
     ears = Ears(settings)
+    voice = Voice()
+    voice.warm_up()  # Optiverse's own voice: written replies answer until it is ready
     # JSON lines are UTF-8 whatever the console code page («sí», «¿qué…?»).
     for stream in (sys.stdin, sys.stdout):
         reconfigure = getattr(stream, "reconfigure", None)
@@ -197,7 +237,7 @@ def serve(settings: Settings | None = None) -> int:
             continue
         try:
             request = json.loads(line)
-            response = answer(request, brain, settings, ears)
+            response = answer(request, brain, settings, ears, voice)
         except Exception as exc:  # one bad request must not end the conversation
             response = {"ok": False, "reply": f"Error: {exc}"}
         out.write(json.dumps(response, ensure_ascii=False) + "\n")

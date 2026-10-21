@@ -61,6 +61,8 @@ dependencies = [
 [project.optional-dependencies]
 recon = ["open3d>=0.18"]
 depth = ["torch>=2.2", "transformers>=4.44"]
+# Optiverse's own voice (llama.cpp, MIT); the installers fetch a prebuilt wheel.
+talk = ["llama-cpp-python>=0.3.16"]
 render = ["pyvista>=0.43"]
 mcp = ["mcp>=1.2", "anyio>=4.3"]
 agents = ["anthropic>=0.40"]

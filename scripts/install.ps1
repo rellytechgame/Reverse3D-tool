@@ -330,6 +330,13 @@ foreach ($ex in $optional) {
 }
 $Extras = $installed -join ","
 
+# Optiverse's own voice runs on llama.cpp (MIT): a prebuilt CPU wheel, no compiler needed.
+Say "Installing Optiverse's voice runtime (llama.cpp)"
+if (-not (Install-Pkgs @("llama-cpp-python>=0.3.16", "--only-binary", ":all:", "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/cpu"))) {
+    Warn "llama.cpp could not be installed: Optiverse answers with its written replies."
+    $Missing.Add("Optiverse voice runtime (llama.cpp)")
+}
+
 # ─── 4. PATH (user scope) ───────────────────────────────────────────────────────────────────
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (-not $NoPath -and (-not $userPath -or -not ($userPath.Split(";") -contains $Scripts))) {
