@@ -2,7 +2,19 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
-## [0.22.1] — 2026-10-21
+## [0.23.0] — 2026-10-21
+
+### Optiverse revisa las fotos antes de reconstruir
+- **`reverse3d photos check <carpeta>`:** antes de gastar tiempo en el render, Optiverse dice qué fotos corregir, por su nombre y con el arreglo de cada una:
+  - **por foto:** movida (comparada con las demás del conjunto), oscura, quemada, objeto cortado por el borde, objeto muy pequeño y repetida (no aporta un ángulo nuevo);
+  - **entre fotos:** fotos que no conectan con ninguna (la reconstrucción las descartaría) y los puntos exactos donde el conjunto se parte («faltan fotos entre IMG_5064 e IMG_5065»), que son la causa de los modelos incompletos o partidos;
+  - **cantidad:** si alcanzan para ese tipo de escena.
+- **Veredicto:** listas, con fotos que corregir, o faltan fotos.
+- **`--keep-good <carpeta>`:** copia solo las fotos buenas a una carpeta nueva; los originales no se tocan.
+- Lee directamente las fotos de iPhone (HEIC).
+- **Medido con 78 fotos reales:** nombró los dos puntos donde una reconstrucción anterior de esas fotos se había partido en modelos separados.
+
+ — 2026-10-21
 
 - **Corregido:** «hola, ¿cómo estás?» y otras preguntas con signos y comas no llegaban a la personalidad de Optiverse, que respondía con la lista de ayuda.
 
