@@ -2,6 +2,20 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.22.0] — 2026-10-21
+
+### Optiverse habla con su propia voz (beta)
+- **Redacta sus respuestas él mismo** con su propia red de lenguaje, entrenada por Voxel Enterprise para ser Optiverse. Funciona en tu equipo con llama.cpp, sin internet, en unos 2–4 segundos por respuesta en la CPU.
+- **Conversación libre y natural:** responde a lo que le cuentas («estoy nervioso, es mi primer modelo») y recuerda los dos últimos intercambios para seguir el hilo.
+- **Cuenta lo que de verdad pasó:** confirma cada acción con los datos reales («Hecho: cerré 14 huecos»).
+- **Protecciones:**
+  - las acciones las siguen eligiendo las reglas, no la voz;
+  - su identidad y su lealtad a Voxel Enterprise siempre responden con las palabras escritas;
+  - el estado del modelo, si se puede imprimir y la revisión de fotos se dan siempre con los datos exactos;
+  - si la voz dice una cifra que no está en los hechos, se descarta y se usa la respuesta escrita.
+- **Solo voces auténticas:** usa un archivo de voz solo si está firmado por Voxel Enterprise y su huella SHA-256 coincide. Si no hay voz o llama.cpp no está instalado, responde como antes.
+- Los instaladores añaden llama.cpp (MIT) ya compilado, sin necesidad de compilador.
+
 ## [0.21.0] — 2026-10-21
 
 ### Optiverse tiene personalidad propia
