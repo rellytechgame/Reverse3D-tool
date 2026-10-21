@@ -121,7 +121,85 @@ def test_answer_uses_the_rules_without_the_language_model(
     }
     out = answer(request, brain, Settings())
     assert out["ok"] and [a["name"] for a in out["actions"]] == ["fill_holes", "remove_loose_parts"]
-    assert out["understood_by"] == "rules" and "Listo" in out["reply"] and out["model"]
+    assert out["understood_by"] == "rules" and "huecos" in out["reply"] and out["model"]
     direct = answer({**request, "message": "", "action": "model_info"}, brain, Settings())
     assert direct["ok"] and direct["understood_by"] == "direct"
     json.dumps(out)  # what Studio receives must be plain JSON
+
+
+def _ask(session: actions.Session, brain: Brain, message: str) -> dict[str, Any]:
+    request = {
+        "message": message,
+        "work": str(session.work),
+        "photos": str(session.photos),
+        "job": str(session.job),
+        "lang": "es",
+    }
+    return answer(request, brain, Settings())
+
+
+def test_a_conversation_with_offers_follow_ups_and_memory(
+    session: actions.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    brain = Brain(Settings())
+    monkeypatch.setattr(brain, "_load", lambda: False)
+    first = _ask(session, brain, "rellena los huecos")
+    assert first["ok"] and "suavizo" in first["reply"] and first["suggestions"][:2] == ["Sí", "No"]
+    yes = _ask(session, brain, "sí")  # runs the offer: a gentle smooth
+    assert yes["ok"] and [a["name"] for a in yes["actions"]] == ["smooth_model"]
+    more = _ask(session, brain, "un poco más")  # the same, stronger
+    assert [a["name"] for a in more["actions"]] == ["smooth_model"]
+    saved = json.loads((session.work / "state.json").read_text(encoding="utf-8"))
+    assert saved["history"][-1]["args"] == {"strength": 2}
+    less = _ask(session, brain, "menos")  # undo, then gentler
+    assert [a["name"] for a in less["actions"]] == ["undo", "smooth_model"]
+    history = _ask(session, brain, "¿qué has hecho?")
+    assert history["ok"] and "cerré huecos" in history["reply"]
+    who = _ask(session, brain, "¿quién eres?")
+    assert "Optiverse" in who["reply"]
+    thanks = _ask(session, brain, "gracias")
+    assert thanks["ok"] and thanks["actions"] == []
+
+
+def test_scale_and_ground(session: actions.Session) -> None:
+    before = trimesh.load(session.current_mesh(), force="mesh").extents.max()
+    bigger = actions.run_action(session, "scale_model", {"percent": 20})
+    assert bigger.ok
+    assert trimesh.load(bigger.model, force="mesh").extents.max() == pytest.approx(
+        before * 1.2, rel=1e-3
+    )
+    grounded = actions.run_action(session, "ground_model", {})
+    mesh = trimesh.load(grounded.model, force="mesh")
+    assert mesh.bounds[0][1] == pytest.approx(0, abs=1e-6)  # glTF is Y-up: base at 0
+    assert abs(mesh.bounds.mean(axis=0)[0]) < 1e-6
+
+
+def test_scale_words() -> None:
+    from reverse3d.assistant.brain import _scale_percent
+
+    assert _scale_percent("hazlo un 30 % más grande") == 30
+    assert _scale_percent("hazlo más pequeño") == -20
+    assert _scale_percent("make it double") == 100
+
+
+def test_listening_reads_and_resamples_wav_and_ignores_silence(tmp_path: Path) -> None:
+    import wave
+
+    from reverse3d.assistant.ears import RATE, Ears, read_wav
+
+    path = tmp_path / "voz.wav"
+    tone = (np.sin(np.linspace(0, 2 * np.pi * 440, 48_000)) * 12_000).astype("<i2")
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(48_000)
+        w.writeframes(np.repeat(tone, 2).tobytes())
+    audio = read_wav(path)
+    assert audio.dtype == np.float32 and abs(len(audio) - RATE) <= 1
+    silent = tmp_path / "silencio.wav"
+    with wave.open(str(silent), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(RATE)
+        w.writeframes(np.zeros(RATE, "<i2").tobytes())
+    assert Ears(Settings()).transcribe(silent) == ""  # no model is even loaded

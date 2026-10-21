@@ -60,6 +60,8 @@ MODEL_REVISIONS: dict[str, str] = {
     "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2": (
         "e8f8c211226b894fcb81acc59f3b34ba3efd5f42"
     ),
+    # Studio's assistant listens: speech to text on this computer (Apache-2.0).
+    "openai/whisper-base": "e37978b90ca9030d5170a5c07aadb050351a65bb",
 }
 
 
@@ -155,11 +157,18 @@ def is_offline(settings: Settings) -> bool:
 
 def _allowed_models() -> dict[str, tuple[str, str]]:
     from reverse3d.assistant.brain import ALLOWED_ASSISTANTS
+    from reverse3d.assistant.ears import ALLOWED_LISTENERS
     from reverse3d.reconstruction.depth_estimation import ALLOWED_MODELS
     from reverse3d.vision.classifier import ALLOWED_CLASSIFIERS
     from reverse3d.vision.segmenter import ALLOWED_SEGMENTERS
 
-    return {**ALLOWED_MODELS, **ALLOWED_SEGMENTERS, **ALLOWED_CLASSIFIERS, **ALLOWED_ASSISTANTS}
+    return {
+        **ALLOWED_MODELS,
+        **ALLOWED_SEGMENTERS,
+        **ALLOWED_CLASSIFIERS,
+        **ALLOWED_ASSISTANTS,
+        **ALLOWED_LISTENERS,
+    }
 
 
 def _default_model() -> str:
@@ -260,12 +269,19 @@ def prepare(settings: Settings, *, include_non_commercial: bool = False) -> dict
     for a missing optional stack; that is reported in the result instead.
     """
     from reverse3d.assistant.brain import ASSISTANT_MODEL
+    from reverse3d.assistant.ears import SPEECH_MODEL
     from reverse3d.vision.classifier import DEFAULT_CLASSIFIER
     from reverse3d.vision.segmenter import DEFAULT_SEGMENTER
 
     # Depth (reliefs), segmentation (silhouettes), the subject classifier and
     # Studio's assistant, all commercial-friendly.
-    models = [_default_model(), DEFAULT_SEGMENTER, DEFAULT_CLASSIFIER, ASSISTANT_MODEL]
+    models = [
+        _default_model(),
+        DEFAULT_SEGMENTER,
+        DEFAULT_CLASSIFIER,
+        ASSISTANT_MODEL,
+        SPEECH_MODEL,
+    ]
     if include_non_commercial:
         models += [m for m in _allowed_models() if m not in models]
 

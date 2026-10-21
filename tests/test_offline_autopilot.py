@@ -125,6 +125,7 @@ class TestModels:
 
     def test_every_allowlisted_model_is_pinned(self, tmp_path: Path) -> None:
         from reverse3d.assistant.brain import ALLOWED_ASSISTANTS
+        from reverse3d.assistant.ears import ALLOWED_LISTENERS
         from reverse3d.reconstruction.depth_estimation import ALLOWED_MODELS
         from reverse3d.vision.classifier import ALLOWED_CLASSIFIERS
         from reverse3d.vision.segmenter import ALLOWED_SEGMENTERS
@@ -134,6 +135,7 @@ class TestModels:
             | set(ALLOWED_SEGMENTERS)
             | set(ALLOWED_CLASSIFIERS)
             | set(ALLOWED_ASSISTANTS)
+            | set(ALLOWED_LISTENERS)
         )
         assert allowed == set(offline.MODEL_REVISIONS)
         assert all(len(sha) == 40 for sha in offline.MODEL_REVISIONS.values())

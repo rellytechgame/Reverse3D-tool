@@ -11,8 +11,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from reverse3d.assistant.actions import ACTIONS, Session, run_action, t
+from reverse3d.assistant.actions import ACTIONS, Result, Session, run_action, t
 from reverse3d.assistant.brain import Brain
+from reverse3d.assistant.ears import Ears
+from reverse3d.assistant.talk import chat, humanize, offer_after, remember
 from reverse3d.config import Settings
 
 #: chips Studio shows under each answer
@@ -50,33 +52,67 @@ def _context(s: Session) -> str:
     )
 
 
-def answer(request: dict[str, Any], brain: Brain, settings: Settings) -> dict[str, Any]:
+def answer(
+    request: dict[str, Any], brain: Brain, settings: Settings, ears: Ears | None = None
+) -> dict[str, Any]:
     work = request.get("work")
     if not work:
         return {"id": request.get("id"), "ok": False, "reply": "Missing work folder."}
     s = Session(
         Path(work), request.get("photos"), request.get("job"), settings, request.get("lang", "es")
     )
+    message = str(request.get("message", ""))[:2000]
+    heard: str | None = None
+    if request.get("audio"):  # a spoken request: Whisper turns it into text, locally
+        try:
+            heard = (ears or Ears(settings)).transcribe(Path(str(request["audio"])), s.lang)
+        except Exception as exc:  # report it in the chat, never crash
+            return _reply(
+                request,
+                s,
+                t(s.lang, f"No pude escuchar el audio: {exc}", f"I couldn't hear the audio: {exc}"),
+                heard="",
+            )
+        if not heard:
+            return _reply(
+                request,
+                s,
+                t(
+                    s.lang,
+                    "No te escuché bien, ¿lo repites?",
+                    "I didn't catch that, could you say it again?",
+                ),
+                heard="",
+            )
+        message = heard
     if request.get("action"):  # a suggestion chip or a button: no language model needed
         steps = [(str(request["action"]), request.get("args") or {})]
-        source, intro = "direct", ""
+        source, ask = "direct", ""
     else:
-        plan = brain.understand(str(request.get("message", ""))[:2000], _context(s))
-        steps, source, intro = plan.actions, plan.source, plan.ask
-    results = []
-    lines: list[str] = []
-    out: dict[str, Any] = {"images": [], "prepared_photos": None, "model": None}
-    for name, args in steps[:6]:
-        r = run_action(s, name, args)
-        results.append({"name": name, "ok": r.ok})
-        lines += r.lines
-        out["images"] += r.images or []
-        out["prepared_photos"] = r.prepared_photos or out["prepared_photos"]
-        out["model"] = r.model or out["model"]
-    if not steps:
+        plan = brain.understand(message, _context(s))
+        steps, source, ask = list(plan.actions), plan.source, plan.ask
+    said: list[str] = []
+    done: list[tuple[str, Result]] = []
+    executed: list[tuple[str, dict[str, Any]]] = []
+    queue = list(steps)
+    while queue and len(executed) < 8:
+        name, args = queue.pop(0)
+        if name.startswith("chat_"):
+            lines, more = chat(s, name)
+            said += lines
+            queue = more + queue
+            continue
+        done.append((name, run_action(s, name, args)))
+        executed.append((name, args))
+    remember(s, done, executed)
+    offer = offer_after(s, done)
+    s.state["offer"] = [offer[0], offer[1]] if offer else None
+    s.save()
+    lines = said + humanize(s, done, offer)
+    if not lines:
         lines = (
-            [intro]
-            if intro
+            [ask]
+            if ask
             else [
                 t(
                     s.lang,
@@ -85,16 +121,42 @@ def answer(request: dict[str, Any], brain: Brain, settings: Settings) -> dict[st
                 )
             ]
         )
+    out: dict[str, Any] = {"images": [], "prepared_photos": None, "model": None}
+    for _, r in done:
+        out["images"] += r.images or []
+        out["prepared_photos"] = r.prepared_photos or out["prepared_photos"]
+        out["model"] = r.model or out["model"]
+    return _reply(
+        request,
+        s,
+        "\n".join(lines),
+        ok=all(r.ok for _, r in done) if done else bool(said),
+        asks=bool(ask and not done and not said) or offer is not None,
+        actions=[{"name": n, "ok": r.ok} for n, r in done],
+        source=source,
+        heard=heard,
+        **out,
+    )
+
+
+def _reply(request: dict[str, Any], s: Session, text: str, **extra: Any) -> dict[str, Any]:
     kind = "model" if s.current_mesh() else ("photos" if s.photo_files() else "none")
+    offer = s.state.get("offer")
+    chips = list(SUGGESTIONS[s.lang][kind])
+    if offer:  # answering the question is one click away
+        chips = [t(s.lang, "Sí", "Yes"), t(s.lang, "No", "No"), *chips[:3]]
     return {
         "id": request.get("id"),
-        "ok": all(r["ok"] for r in results) if results else False,
-        "reply": "\n".join(lines),
-        "asks": bool(intro and not steps),
-        "actions": results,
-        "understood_by": source,
-        "suggestions": SUGGESTIONS[s.lang][kind],
-        **out,
+        "ok": extra.pop("ok", False),
+        "reply": text,
+        "asks": extra.pop("asks", False),
+        "actions": extra.pop("actions", []),
+        "understood_by": extra.pop("source", "none"),
+        "heard": extra.pop("heard", None),
+        "suggestions": chips,
+        "images": extra.pop("images", []),
+        "prepared_photos": extra.pop("prepared_photos", None),
+        "model": extra.pop("model", None),
     }
 
 
@@ -102,6 +164,12 @@ def serve(settings: Settings | None = None) -> int:
     settings = settings or Settings.load()
     brain = Brain(settings)
     brain.warm_up()  # the first messages are answered by the rules while it loads
+    ears = Ears(settings)
+    # JSON lines are UTF-8 whatever the console code page («sí», «¿qué…?»).
+    for stream in (sys.stdin, sys.stdout):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure:
+            reconfigure(encoding="utf-8")
     out = sys.stdout
     out.write(
         json.dumps({"ready": True, "model": brain.available, "actions": list(ACTIONS)}) + "\n"
@@ -113,7 +181,7 @@ def serve(settings: Settings | None = None) -> int:
             continue
         try:
             request = json.loads(line)
-            response = answer(request, brain, settings)
+            response = answer(request, brain, settings, ears)
         except Exception as exc:  # one bad request must not end the conversation
             response = {"ok": False, "reply": f"Error: {exc}"}
         out.write(json.dumps(response, ensure_ascii=False) + "\n")

@@ -96,6 +96,8 @@ class Session:
         for name in names:
             key = Path(str(name)).name.lower()
             hit = by_key.get(key) or by_key.get(Path(key).stem)
+            if hit is None and key.isdigit():  # "4950" -> IMG_4950.HEIC
+                hit = next((p for p in self.photo_files() if p.stem.lower().endswith(key)), None)
             if hit and hit not in found:
                 found.append(hit)
         return found
@@ -527,14 +529,15 @@ def _edit(
     s.state["meshes"].append(str(target))
     s.save()
     after = _stats(mesh)
-    lines = [
-        t(s.lang, f"Listo: {verb_es}.", f"Done: {verb_en}."),
-        t(
-            s.lang,
-            f"Caras: {num(s.lang, before['faces'])} → {num(s.lang, after['faces'])}.",
-            f"Faces: {before['faces']:,} → {after['faces']:,}.",
-        ),
-    ]
+    lines = [t(s.lang, f"Listo: {verb_es}.", f"Done: {verb_en}.")]
+    if after["faces"] != before["faces"]:
+        lines.append(
+            t(
+                s.lang,
+                f"Caras: {num(s.lang, before['faces'])} → {num(s.lang, after['faces'])}.",
+                f"Faces: {num(s.lang, before['faces'])} → {num(s.lang, after['faces'])}.",
+            )
+        )
     if after["watertight"] and not before["watertight"]:
         lines.append(
             t(
@@ -621,6 +624,42 @@ def set_height(s: Session, a: HeightArgs) -> Result:
         s,
         f"el modelo ahora mide {a.mm:g} mm de alto",
         f"the model is now {a.mm:g} mm tall",
+        change,
+        keeps_topology=True,
+    )
+
+
+class ScaleArgs(BaseModel):
+    percent: float = Field(gt=-90, lt=1000, description="+20 = 20 % bigger, -20 = 20 % smaller")
+
+
+def scale_model(s: Session, a: ScaleArgs) -> Result:
+    factor = 1 + a.percent / 100
+
+    def change(mesh: Any) -> Any:
+        mesh.apply_scale(factor)
+        return mesh
+
+    es = f"lo hice un {abs(a.percent):g} % {'más grande' if a.percent > 0 else 'más pequeño'}"
+    en = f"made it {abs(a.percent):g} % {'bigger' if a.percent > 0 else 'smaller'}"
+    return _edit(s, es, en, change, keeps_topology=True)
+
+
+def ground_model(s: Session, _: NoArgs) -> Result:
+    src = s.current_mesh()
+    up = 1 if src is not None and src.suffix.lower() in {".glb", ".gltf"} else 2
+
+    def change(mesh: Any) -> Any:
+        low, high = mesh.bounds
+        shift = -(low + high) / 2
+        shift[up] = -low[up]  # base on the ground, centred on the other axes
+        mesh.apply_translation(shift)
+        return mesh
+
+    return _edit(
+        s,
+        "lo centré y lo apoyé sobre su base",
+        "centred it and set it on its base",
         change,
         keeps_topology=True,
     )
@@ -779,6 +818,8 @@ ACTIONS: dict[str, Action] = {
     "capture_advice": Action(
         capture_advice, NoArgs, "which photos are missing and how to capture better"
     ),
+    "scale_model": Action(scale_model, ScaleArgs, 'bigger/smaller: {"percent": +20 or -20}'),
+    "ground_model": Action(ground_model, NoArgs, "centre the model and set it on its base"),
     "help": Action(show_help, NoArgs, "what the assistant can do"),
 }
 

@@ -14,15 +14,19 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
+from reverse3d.assistant.talk import CHAT_EXAMPLES
 from reverse3d.config import Settings
 
 logger = logging.getLogger(__name__)
 
 ASSISTANT_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+#: one model loads at a time: two threads importing transformers at once break it
+LOAD_LOCK = threading.Lock()
 #: model id → (kind, licence); every entry must be commercial-friendly.
 ALLOWED_ASSISTANTS: dict[str, tuple[str, str]] = {ASSISTANT_MODEL: ("assistant", "Apache-2.0")}
 
@@ -45,8 +49,15 @@ _PHOTO = re.compile(
 )
 
 
+_PHOTO_WORD = re.compile(r"(foto|photo|imagen|image|picture|img)", re.I)
+_NUMBER = re.compile(r"(?<![\d.,])(\d{3,6})(?![\d.,%]|\s*(?:mm|cm|m|%))")
+
+
 def _photo_names(text: str) -> list[str]:
-    return [m.group(1) for m in _PHOTO.finditer(text)]
+    names = [m.group(1) for m in _PHOTO.finditer(text)]
+    if not names and _PHOTO_WORD.search(text):  # "las fotos 4950 y 4951"
+        names = [m.group(1) for m in _NUMBER.finditer(text)]
+    return names
 
 
 def _height_mm(text: str) -> float | None:
@@ -101,6 +112,24 @@ def _issue(text: str) -> str | None:
 
 
 _RULES: list[tuple[str, str]] = [
+    (
+        "scale_model",
+        r"(mas grande|mas pequen|agranda|achica|encoge|el tamano|su tamano|bigger|smaller|enlarge|shrink|scale it up|scale it down)",
+    ),
+    (
+        "ground_model",
+        r"(apoya|apoyalo|ponlo derecho|en el suelo|sobre la mesa|centralo|centra el|center it|on the ground|on its base)",
+    ),
+    (
+        "chat_history",
+        r"(que has hecho|que hiciste|que cambios|que le hiciste|what did you do|what changed)",
+    ),
+    ("chat_who", r"\b(quien eres|que eres|como te llamas|who are you|what are you)\b"),
+    (
+        "chat_status",
+        r"(listo para imprimir|cuantas fotos|como va|en que estado|ready to print|how many photos)",
+    ),
+    ("chat_bye", r"\b(adios|hasta luego|nos vemos|chao|bye|see you)\b"),
     ("undo", r"\b(desha[cz]|undo|revert|reviert|vuelve atras|como estaba)"),
     (
         "restore_photos",
@@ -118,17 +147,17 @@ _RULES: list[tuple[str, str]] = [
     ("preview_cutout", r"\b(recorte|cut-?out|mascara|mask|silueta)"),
     (
         "review_photos",
-        r"\b(revisa|analiza|comprueba|check|review|analy[sz]e|como estan|que fotos fallan)",
+        r"\b(revisa|analiza|comprueba|check|review|analy[sz]e|como estan|que fotos fallan|(?:que tal|como) (?:salieron|quedaron|estan|se ven) (?:mis |las )?fotos)",
     ),
     ("fill_holes", r"\b(hueco|agujero|cierra|rellena|hole|fill|watertight|estanco)"),
-    ("smooth_model", r"\b(suavi|lisa|liso|arruga|smooth|wrinkl|noise|ruido)"),
+    ("smooth_model", r"\b(suavi|lisa|liso|alis|puli|arruga|pico|smooth|wrinkl|noise|ruido|bump)"),
     (
         "remove_loose_parts",
         r"\b(resto|suelt|flota|basur|pedaz|loose|leftover|debris|floating|island)",
     ),
     (
         "simplify_model",
-        r"\b(simplific|aligera|menos caras|reduce|lighter|decimat|fewer faces|optimiza)",
+        r"\b(simplific|aligera|menos caras|reduce las caras|reduce el peso|lighter|decimat|fewer faces|optimiza|pesad|pesa|heavy|weigh|file size)",
     ),
     ("set_height", r"\b(mid[aeo]n?|medir|altura|alto|tamano|escala|tall|height|size|scale to)"),
     (
@@ -140,12 +169,16 @@ _RULES: list[tuple[str, str]] = [
 ]
 
 
-_DROP_VERBS = r"(quita|saca|elimina|borra|descarta|no uses|remove|drop|delete|exclude|discard)"
+_DROP_VERBS = r"((?:quita|saca|elimina|borra|descarta)(?:melas|mela|me|las|la|los|lo)?|no (?:la |las |lo |los )?uses|remove|drop|delete|exclude|discard)"
 _SEE_VERBS = r"(ver|mira|muestra|muestrame|ensena|ensename|show|see|look)"
 
 
-def rules(message: str) -> Plan:
-    """Exact rules for Spanish and English requests (also the model's backup)."""
+def rules(message: str, whole: str | None = None) -> Plan:
+    """Exact rules for Spanish and English requests (also the model's backup).
+
+    whole: the full request when message is one of its clauses ("…, no las uses"
+    takes "las" from the rest).
+    """
     plain = _plain(message)
     plan = Plan(source="rules")
     names = _photo_names(message)
@@ -160,7 +193,10 @@ def rules(message: str) -> Plan:
             continue
         args: dict[str, Any] = {}
         if name in ("exclude_photos", "restore_photos"):
-            names, issue = _photo_names(message), _issue(message)
+            names, issue = (
+                _photo_names(message),
+                _issue(message) or (_issue(whole) if whole else None),
+            )
             if names:
                 args["names"] = names
             elif issue:
@@ -176,6 +212,8 @@ def rules(message: str) -> Plan:
         elif name == "preview_cutout":
             names = _photo_names(message)
             args["name"] = names[0] if names else ""
+        elif name == "scale_model":
+            args["percent"] = _scale_percent(message)
         elif name == "set_height":
             mm = _height_mm(message)
             if mm is None:
@@ -195,11 +233,35 @@ def rules(message: str) -> Plan:
             break
     if len(plan.actions) > 1:  # "hola, …": the greeting is not a request
         plan.actions = [a for a in plan.actions if a[0] != "help"]
+    found = {n for n, _ in plan.actions}
+    if "set_height" in found:  # "que tenga 18 cm de alto" is a size, not a rescale
+        plan.actions = [a for a in plan.actions if a[0] != "scale_model"]
+    if "scale_model" in found:  # "reduce el tamaño" changes size, not faces
+        plan.actions = [a for a in plan.actions if a[0] != "simplify_model"]
     return plan
 
 
 #: example requests per action (Spanish and English); the model compares with these
 EXAMPLES: dict[str, list[str]] = {
+    "scale_model": [
+        "hazlo un 20 % más grande",
+        "agrándalo un poco",
+        "hazlo más pequeño",
+        "reduce su tamaño a la mitad",
+        "make it 20 % bigger",
+        "make it smaller",
+        "enlarge it",
+        "shrink it",
+    ],
+    "ground_model": [
+        "apóyalo en la base",
+        "ponlo derecho sobre el suelo",
+        "céntralo",
+        "que quede apoyado en la mesa",
+        "put it on the ground",
+        "center the model",
+        "set it on its base",
+    ],
     "review_photos": [
         "revisa mis fotos",
         "mira si alguna foto está mal",
@@ -368,14 +430,55 @@ EXAMPLES: dict[str, list[str]] = {
     ],
 }
 
+_POLITE = re.compile(r"(?i)(por favor|porfa|porfavor|please|gracias de antemano)")
 #: below this similarity the assistant asks instead of acting (measured in tests)
 CONFIDENT = 0.55
 _JOINERS = ("y luego", "y despues", "y después", "luego", "and then", "then", "y", "and")
-_SPLIT = re.compile(r"\s*[,;]\s*|\s+(?:" + "|".join(_JOINERS) + r")\s+", re.I)
+_SPLIT = re.compile(r"\s*[,;]\s*|(?<!\d)\s+(?:" + "|".join(_JOINERS) + r")\s+(?!\d)", re.I)
+
+
+_SHORT = [
+    (
+        "chat_yes",
+        r"^(si|vale|dale|ok|okay|claro|hazlo|de acuerdo|adelante|perfecto|yes|sure|yep|go ahead|do it)[.! ]*$",
+    ),
+    ("chat_no", r"^(no|mejor no|nop|dejalo asi|asi esta bien|no gracias|no thanks|nope)[.! ]*$"),
+    ("chat_more", r"^(mas|un poco mas|aun mas|otra vez|de nuevo|again|more|once more)[.! ]*$"),
+    ("chat_less", r"^(menos|un poco menos|te pasaste|demasiado|less|too much)[.! ]*$"),
+    ("chat_thanks", r"^(gracias|muchas gracias|mil gracias|thanks|thank you)[.! ]*$"),
+]
+
+
+def short_reply(message: str) -> str | None:
+    """«sí», «no», «más», «menos», «gracias»: exact, before any model."""
+    plain = _plain(message).strip()
+    for name, pattern in _SHORT:
+        if re.match(pattern, plain):
+            return name
+    pieces = [p.strip(" .!¡?¿") for p in re.split(r"[,;]", plain) if p.strip(" .!¡?¿")]
+    if len(pieces) > 1:
+        found = {next((n for n, pat in _SHORT if re.match(pat, piece)), None) for piece in pieces}
+        if len(found) == 1 and None not in found:
+            return found.pop()
+    return None
+
+
+def _scale_percent(message: str) -> float:
+    """+20 for "20 % bigger", -20 for "20 % smaller"; "double" is +100."""
+    plain = _plain(message)
+    smaller = re.search(r"(pequen|chico|reduce|achica|encoge|smaller|shrink)", plain) is not None
+    if not smaller and re.search(r"(doble|double|twice)", plain):
+        return 100.0
+    pct = _percent(message) or 20
+    return float(-min(pct, 89) if smaller else pct)
 
 
 def _with_args(name: str, message: str) -> tuple[str, dict[str, Any]] | str:
     """The action with its details from the user's own words, or what to ask."""
+    if name.startswith("chat_"):
+        return name, {}
+    if name == "scale_model":
+        return name, {"percent": _scale_percent(message)}
     for rule_name, args in rules(message).actions:
         if rule_name == name:
             return name, args
@@ -411,9 +514,7 @@ class Brain:
         self._bank: Any = None
         self._labels: list[str] = []
         self._failed = False
-        import threading
-
-        self._lock = threading.Lock()
+        self._lock = LOAD_LOCK
 
     @property
     def available(self) -> bool:
@@ -448,8 +549,9 @@ class Brain:
             self._tokenizer = AutoTokenizer.from_pretrained(str(path), local_files_only=True)  # nosec B615
             encoder: Any = AutoModel.from_pretrained(str(path), local_files_only=True)  # nosec B615
             self._encoder = encoder.eval()
-            self._labels = [name for name, phrases in EXAMPLES.items() for _ in phrases]
-            self._bank = self._embed([p for phrases in EXAMPLES.values() for p in phrases])
+            bank = {**EXAMPLES, **CHAT_EXAMPLES}
+            self._labels = [name for name, phrases in bank.items() for _ in phrases]
+            self._bank = self._embed([p for phrases in bank.values() for p in phrases])
             return True
         except Exception as exc:  # no model / no torch: the rules still work
             logger.info("Assistant language model unavailable: %s", exc)
@@ -458,7 +560,6 @@ class Brain:
 
     def warm_up(self) -> None:
         """Load the model in the background: until it is ready, the rules answer."""
-        import threading
 
         def load() -> None:
             with self._lock:
@@ -485,6 +586,9 @@ class Brain:
         return name, best[name]
 
     def understand(self, message: str, context: str = "") -> Plan:
+        quick = short_reply(message)
+        if quick:
+            return Plan(actions=[(quick, {})], source="rules")
         exact = rules(message)
         if not self.ready():
             return exact
@@ -497,23 +601,36 @@ class Brain:
         plan = Plan(source="model")
         clauses = [c for c in _SPLIT.split(message) if c and len(c.strip()) > 1] or [message]
         for clause in clauses:
-            if len(clauses) > 1 and len(clause.split()) < 2 and not rules(clause).actions:
-                continue  # "ajústalo", "oye": not a request on their own
-            name, sure = self.classify(clause)
-            logger.debug("assistant: %r -> %s (%.2f)", clause, name, sure)
-            by_rule = [n for n, _ in rules(clause).actions if n != "help"]
-            if by_rule and by_rule[0] != name and (sure < 0.75 or by_rule[0] == "undo"):
-                name, sure = by_rule[0], 1.0  # the user's exact words win over a doubtful guess
-            if sure < CONFIDENT:
-                continue
-            step = _with_args(name, clause if name != "set_height" else message)
-            if isinstance(step, str):
-                plan.ask = plan.ask or step
-                continue
-            if step not in plan.actions:
-                plan.actions.append(step)
+            clause = _POLITE.sub(" ", clause).strip(" .,!?¡¿")
+            if not clause or (
+                len(clauses) > 1 and len(clause.split()) < 2 and not rules(clause).actions
+            ):
+                continue  # "ajústalo", "oye", "por favor": not a request on their own
+            exact_steps = [a for a in rules(clause, message).actions if a[0] != "help"]
+            if exact_steps:
+                # The user's exact words ("huecos", "suavízalo", a photo name) win:
+                # the model decides only when the rules recognise nothing.
+                steps: list[tuple[str, dict[str, Any]] | str] = list(exact_steps)
+            else:
+                name, sure = self.classify(clause)
+                logger.debug("assistant: %r -> %s (%.2f)", clause, name, sure)
+                needed = 0.75 if name.startswith("chat_") else CONFIDENT
+                if sure < needed:
+                    continue
+                steps = [_with_args(name, clause if name != "set_height" else message)]
+            for step in steps:
+                if isinstance(step, str):
+                    plan.ask = plan.ask or step
+                elif step not in plan.actions:
+                    plan.actions.append(step)
         if len(plan.actions) > 1:  # "oye, …": a greeting next to a request is not a request
             plan.actions = [a for a in plan.actions if a[0] != "help"]
+        if any(not n.startswith("chat_") for n, _ in plan.actions):
+            plan.actions = [a for a in plan.actions if not a[0].startswith("chat_")]
+        if any(n == "exclude_photos" and a.get("issue") for n, a in plan.actions):
+            plan.actions = [
+                a for a in plan.actions if not (a[0] == "enhance_photos" and not a[1].get("names"))
+            ]
         if not plan.actions and exact.actions:
             return exact
         if not plan.actions and not plan.ask:
