@@ -113,6 +113,7 @@ ignore = [
 "reverse3d/rendering/_blender_job.py" = ["N802"]
 # bilingual messages and request patterns read better on one line
 "reverse3d/assistant/*.py" = ["E501", "S311"]  # S311: random wording variety, not security
+"reverse3d/photocheck.py" = ["E501"]  # messages for the person, one per line
 
 [tool.mypy]
 python_version = "3.10"

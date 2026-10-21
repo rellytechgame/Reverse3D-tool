@@ -71,6 +71,10 @@ scene_app = typer.Typer(
     help="Scene profiles: object, character, architecture, landscape.", no_args_is_help=True
 )
 app.add_typer(scene_app, name="scene")
+photos_app = typer.Typer(
+    help="Check photos with Optiverse before reconstructing.", no_args_is_help=True
+)
+app.add_typer(photos_app, name="photos")
 
 
 @dataclass
@@ -805,6 +809,40 @@ def scene_detect_cmd(
     def job(s: Settings) -> Any:
         work = s.workspace / ".scene"
         return detect_scene(prepare_heic_input(folder, work), s).to_dict()
+
+    _run(ctx, job)
+
+
+@photos_app.command("check")
+def photos_check_cmd(
+    ctx: typer.Context,
+    folder: Path = typer.Argument(..., help="Folder with the photos."),
+    scene: str | None = typer.Option(
+        None, "--scene", help="object, character, architecture or landscape (default: detect)."
+    ),
+    lang: str = typer.Option("es", "--lang", help="Language of the advice: es or en."),
+    keep_good: Path | None = typer.Option(
+        None, "--keep-good", help="Copy the photos that need no fixing to this new folder."
+    ),
+) -> None:
+    """Which photos to fix, by name, before reconstructing (Optiverse)."""
+    import logging
+
+    from reverse3d.photocheck import check_photos
+    from reverse3d.photocheck import keep_good as copy_good
+
+    log = logging.getLogger("reverse3d.photocheck")
+
+    def job(s: Settings) -> Any:
+        def progress(done: int, total: int) -> None:
+            if done == total or done % 5 == 0:
+                log.info("Optiverse revisa las fotos: %d/%d", done, total)
+
+        check = check_photos(folder, s, scene, progress)
+        out = check.to_dict(lang)
+        if keep_good is not None:
+            out["kept_dir"] = str(copy_good(folder, check, keep_good))
+        return out
 
     _run(ctx, job)
 
