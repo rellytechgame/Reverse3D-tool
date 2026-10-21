@@ -115,7 +115,7 @@ _RULES = [
 
 def _plain(text: str) -> str:
     table = str.maketrans("áéíóúüñ", "aeiouun")
-    return re.sub(r"[¿?¡!.]", " ", text.lower().translate(table)).strip()
+    return " ".join(re.sub(r"[¿?¡!.,]", " ", text.lower().translate(table)).split())
 
 
 def persona_intent(message: str) -> str | None:

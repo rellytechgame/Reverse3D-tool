@@ -2,6 +2,10 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.22.1] — 2026-10-21
+
+- **Corregido:** «hola, ¿cómo estás?» y otras preguntas con signos y comas no llegaban a la personalidad de Optiverse, que respondía con la lista de ayuda.
+
 ## [0.22.0] — 2026-10-21
 
 ### Optiverse habla con su propia voz (beta)

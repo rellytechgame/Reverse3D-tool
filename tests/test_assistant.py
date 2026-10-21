@@ -405,3 +405,10 @@ def test_the_state_of_the_model_is_always_the_exact_written_data(
     }
     out = answer(request, brain, Settings(), None, fake)  # type: ignore[arg-type]
     assert fake.calls == [] and "caras" in out["reply"]  # the measured state, not a guess
+
+
+def test_greetings_with_punctuation_reach_the_personality() -> None:
+    from reverse3d.assistant.persona import persona_intent
+
+    assert persona_intent("hola, ¿cómo estás?") == "chat_feel"
+    assert persona_intent("Hola. ¿Quién te creó?") == "chat_creator"
