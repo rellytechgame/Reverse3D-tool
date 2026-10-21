@@ -203,3 +203,21 @@ def test_listening_reads_and_resamples_wav_and_ignores_silence(tmp_path: Path) -
         w.setframerate(RATE)
         w.writeframes(np.zeros(RATE, "<i2").tobytes())
     assert Ears(Settings()).transcribe(silent) == ""  # no model is even loaded
+
+
+def test_coloured_model_keeps_its_colours_when_holes_are_filled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(actions, "_own_model", lambda: None)
+    job = tmp_path / "job"
+    job.mkdir()
+    mesh = trimesh.creation.cylinder(radius=0.05, height=0.2, sections=32)
+    mesh.update_faces(np.arange(len(mesh.faces)) % 17 != 0)
+    mesh.visual.vertex_colors = np.tile([200, 10, 10, 255], (len(mesh.vertices), 1))
+    mesh.export(job / "model.glb")
+    s = actions.Session(tmp_path / "work", None, job, Settings())
+    filled = actions.run_action(s, "fill_holes", {})
+    assert filled.ok, filled.lines
+    out = trimesh.load(filled.model, force="mesh")
+    colors = np.asarray(out.visual.vertex_colors)
+    assert len(colors) == len(out.vertices) and (colors[:, 0] > 150).all()

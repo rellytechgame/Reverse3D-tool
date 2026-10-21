@@ -2,6 +2,29 @@
 
 Todos los cambios notables se documentan aquí. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/).
 
+## [0.20.0] — 2026-10-20
+
+### Optiverse conversa y escucha
+- **Habla como una persona, en primera persona y con frases variadas.** Todo lo que dice sale de lo que de verdad hicieron Optiverse y el Core: no se inventa nada.
+- **Propone el siguiente paso** («¿Lo suavizo un poco para que no se noten los parches?») y lo hace si respondes «sí».
+- **Recuerda el último cambio:** «más» u «otra vez» lo repite más fuerte, y «menos» lo deshace y lo rehace más suave.
+- **Contesta preguntas:** quién es, qué ha hecho, si el modelo está listo para imprimir y cuántas fotos quedan. También entiende gracias y despedidas.
+- **Pedidos hablados:** las peticiones pueden llegar como audio (`{"audio": "pedido.wav"}`) y se transcriben en el equipo con Whisper base (Apache-2.0, 290 MB, revisión fijada). Se descarga con el resto de la IA local; nada se sube.
+- **Nuevas acciones de diseño:**
+  - escalar: «hazlo un 20 % más grande», «más pequeño», «al doble»;
+  - apoyar y centrar: «apóyalo en la base».
+- **Comprensión más robusta:**
+  - las reglas exactas mandan cuando reconocen la palabra, y la IA multilingüe decide el resto;
+  - entiende verbos con pronombre («quítalas», «bórrame», «alísalo»);
+  - reconoce fotos por número («las fotos 4950 y 4951»);
+  - entiende el peso del archivo («pesa mucho»);
+  - ignora «por favor»;
+  - cada acción se ejecuta una sola vez por petición.
+- **Corregido:**
+  - rellenar huecos en modelos con color por vértice fallaba;
+  - Whisper y la IA de lenguaje se cargaban a la vez y fallaban;
+  - el modo conversación lee y escribe siempre en UTF-8.
+
 ## [0.19.2] — 2026-10-20
 
 ### Asistente

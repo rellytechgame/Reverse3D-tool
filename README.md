@@ -358,6 +358,8 @@ reverse3d assistant serve      # líneas JSON por stdin/stdout (lo usa reverse3d
 
 - **Los originales nunca se tocan:** las fotos preparadas van a `<work>/fotos-preparadas` y cada cambio del modelo es una versión nueva en `<work>/modelos`.
 - **Entiende frases libres** con una IA de lenguaje local: paraphrase-multilingual-MiniLM-L12-v2 (Apache-2.0, 471 MB). Elige entre acciones fijas y, si no está segura, pregunta.
+- **Conversa como una persona:** propone el siguiente paso, actúa si dices «sí», entiende «más» y «menos», y cuenta qué hizo.
+- **Escucha:** las peticiones habladas se transcriben en tu equipo con Whisper base (Apache-2.0, 290 MB). En Studio hay un botón de micrófono, y la respuesta se lee en voz alta con las voces del sistema.
 
 ## 🧠 Reverse3D Core (motor exclusivo)
 

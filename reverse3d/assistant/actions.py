@@ -500,6 +500,13 @@ def _stats(mesh: Any) -> dict[str, Any]:
     }
 
 
+def _vertex_colors(mesh: Any) -> np.ndarray | None:
+    if getattr(mesh.visual, "kind", None) != "vertex":
+        return None
+    colors = np.asarray(mesh.visual.vertex_colors)
+    return colors if len(colors) == len(mesh.vertices) else None
+
+
 def _edit(
     s: Session, verb_es: str, verb_en: str, change: Callable[[Any], Any], keeps_topology: bool
 ) -> Result:
@@ -521,7 +528,17 @@ def _edit(
     if not keeps_topology and getattr(mesh.visual, "kind", None) == "texture":
         mesh.visual = mesh.visual.to_color()  # new faces have no UVs: keep the colours per vertex
         texture_lost = True
+    colors = _vertex_colors(mesh)
+    original = np.asarray(mesh.vertices).copy()
     mesh = change(mesh)
+    if colors is not None:
+        # Edits add faces and may reorder vertices: rebuild the colours from the
+        # nearest original vertex so the visual always matches the new mesh.
+        import trimesh
+        from scipy.spatial import cKDTree
+
+        _, nearest = cKDTree(original).query(np.asarray(mesh.vertices))
+        mesh.visual = trimesh.visual.ColorVisuals(mesh=mesh, vertex_colors=colors[nearest])
     out = s.work / "modelos"
     out.mkdir(parents=True, exist_ok=True)
     target = out / f"modelo-{len(s.state['meshes']) + 1:02d}.glb"

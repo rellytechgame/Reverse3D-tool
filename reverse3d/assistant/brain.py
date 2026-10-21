@@ -625,6 +625,11 @@ class Brain:
                     plan.actions.append(step)
         if len(plan.actions) > 1:  # "oye, …": a greeting next to a request is not a request
             plan.actions = [a for a in plan.actions if a[0] != "help"]
+        unique: list[tuple[str, dict[str, Any]]] = []
+        for step in plan.actions:  # once per request ("suavízalo… suavízalo")
+            if step[0] not in [n for n, _ in unique]:
+                unique.append(step)
+        plan.actions = unique
         if any(not n.startswith("chat_") for n, _ in plan.actions):
             plan.actions = [a for a in plan.actions if not a[0].startswith("chat_")]
         if any(n == "exclude_photos" and a.get("issue") for n, a in plan.actions):
