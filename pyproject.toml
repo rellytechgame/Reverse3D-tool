@@ -114,6 +114,7 @@ ignore = [
 # bilingual messages and request patterns read better on one line
 "reverse3d/assistant/*.py" = ["E501", "S311"]  # S311: random wording variety, not security
 "reverse3d/photocheck.py" = ["E501"]  # messages for the person, one per line
+"reverse3d/cad_export.py" = ["E501"]  # STEP entities are written one per line
 
 [tool.mypy]
 python_version = "3.10"

@@ -129,7 +129,14 @@ def load_mesh(path: str | Path, settings: Settings) -> trimesh.Trimesh:
 
 
 def save_mesh(mesh: trimesh.Trimesh, path: str | Path, *, overwrite: bool = False) -> Path:
-    """Export ``mesh`` to an allowlisted format inferred from the extension."""
+    """Export ``mesh`` to an allowlisted format inferred from the extension
+    (``.step``/``.stp``: a STEP solid or surface for CAD programs)."""
+    from reverse3d.cad_export import STEP_EXTENSIONS, save_step
+
+    if Path(path).suffix.lower() in STEP_EXTENSIONS:
+        out = save_step(mesh, path, overwrite=overwrite)
+        logger.info("Saved STEP %s (%d faces)", out.name, len(mesh.faces))
+        return out
     out = prepare_output_file(path, allowed_extensions=MESH_EXTENSIONS, overwrite=overwrite)
     file_type = out.suffix.lower().lstrip(".")
     if file_type == "gltf":

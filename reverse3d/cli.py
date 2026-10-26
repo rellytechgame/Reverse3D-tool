@@ -581,6 +581,36 @@ def mesh_clean(
     _run(ctx, lambda s: clean_mesh_file(input_path, output, s, options, overwrite=force))
 
 
+@mesh_app.command("export")
+def mesh_export(
+    ctx: typer.Context,
+    input_path: Path = typer.Argument(..., metavar="INPUT"),
+    output: Path = typer.Argument(..., help="model.step / .stp (CAD), .stl, .obj, .glb, .ply…"),
+    faces: int | None = typer.Option(
+        None, "--faces", min=4, help="Simplify to N faces first (a faceted STEP grows with them)."
+    ),
+    force: bool = typer.Option(False, "--force", "-f"),
+) -> None:
+    """Export a mesh to another format, including STEP for SolidWorks, Fusion, CATIA or FreeCAD."""
+    from reverse3d.mesh_io import load_mesh, save_mesh
+
+    def job(s: Settings) -> Any:
+        mesh = load_mesh(input_path, s)
+        if faces and len(mesh.faces) > faces:
+            mesh = mesh.simplify_quadric_decimation(face_count=faces)
+        out = save_mesh(mesh, output, overwrite=force)
+        step = out.suffix.lower() in {".step", ".stp"}
+        return {
+            "output": str(out),
+            "faces": len(mesh.faces),
+            "watertight": bool(mesh.is_watertight),
+            "kind": ("solid" if mesh.is_watertight else "surface") if step else "mesh",
+            "size_mb": round(out.stat().st_size / 1e6, 2),
+        }
+
+    _run(ctx, job)
+
+
 @mesh_app.command("measure")
 def mesh_measure(
     ctx: typer.Context, input_path: Path = typer.Argument(..., metavar="INPUT")
