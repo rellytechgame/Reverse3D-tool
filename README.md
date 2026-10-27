@@ -28,6 +28,7 @@ Desarrollado por **[Voxel Enterprise](https://voxel.lat)**
 - [💰 Ahorro de tokens](#-ahorro-de-tokens)
 - [🔌 Sin internet (modo offline)](#-sin-internet-modo-offline)
 - [🤖 Piloto automático](#-piloto-automático)
+- [🛠️ Modo trabajo: tus modelos con manos](#️-modo-trabajo-tus-modelos-con-manos-preguntando-antes)
 - [🧠 Reverse3D Core (motor exclusivo)](#-reverse3d-core-motor-exclusivo)
 - [Capacidades](#capacidades)
 - [Herramientas externas opcionales](#herramientas-externas-opcionales)
@@ -360,6 +361,40 @@ reverse3d assistant serve      # líneas JSON por stdin/stdout (lo usa reverse3d
 - **Entiende frases libres** con una IA de lenguaje local: paraphrase-multilingual-MiniLM-L12-v2 (Apache-2.0, 471 MB). Elige entre acciones fijas y, si no está segura, pregunta.
 - **Conversa como una persona:** propone el siguiente paso, actúa si dices «sí», entiende «más» y «menos», y cuenta qué hizo.
 - **Escucha:** las peticiones habladas se transcriben en tu equipo con Whisper base (Apache-2.0, 290 MB). En Studio hay un botón de micrófono, y la respuesta se lee en voz alta con las voces del sistema.
+
+## 🛠️ Modo trabajo: tus modelos con manos (preguntando antes)
+
+Un modelo trabaja en una carpeta de tu equipo, como Claude Code u OpenCode: lee, busca, edita archivos y ejecuta comandos. **Siempre bajo tus permisos.**
+
+```bash
+reverse3d work run "la prueba falla: arréglala y ejecuta las pruebas" -C mi-proyecto/
+reverse3d work run "..." -C mi-proyecto/ -p edits    # edita libre, pregunta los comandos
+reverse3d work run "..." -C mi-proyecto/ -p free     # todo libre (lo delicado se pregunta)
+reverse3d work undo -C mi-proyecto/ -n 3             # deshace los 3 últimos cambios
+reverse3d work permissions -C mi-proyecto/ --reset   # olvida los «siempre en esta carpeta»
+reverse3d work run "..." --json                      # líneas JSON: Studio o una página en la nube
+```
+
+| Tú eliges | Qué pasa |
+|---|---|
+| `ask` (por defecto) | Pregunta antes de cada cambio y cada comando, y te muestra **exactamente** el cambio (diff) o el comando |
+| `edits` | Cambia archivos de la carpeta sin preguntar; los comandos se preguntan |
+| `free` | Cambia y ejecuta sin preguntar |
+| A cada pregunta | **sí** · **sin preguntar en esta sesión** · **siempre en esta carpeta** · **no** |
+
+**Lo que nunca está a su alcance, elijas lo que elijas:**
+- **Fuera de la carpeta:** salir de ella, también por enlaces. Puedes añadir más carpetas con `--add-folder`.
+- **Secretos:** claves, `.env`, credenciales SSH o de la nube, `~/.voxel-keys`.
+- **Comandos destructivos:** formatear, `rm -rf /`, apagar el equipo… se rechazan.
+- **Comandos delicados:** borrar en recursivo, `git push`, publicar paquetes, instalar programas, descargar y ejecutar… **siempre se preguntan**, también en `free`.
+
+**Todo cambio se puede deshacer:** lo anterior se guarda en `<carpeta>/.reverse3d/undo/`.
+
+**Modelo:** cualquier GGUF con llamadas a herramientas, en `~/.reverse3d/models/llm/` o con `--model`. Probado de verdad:
+- **Qwen2.5-Coder-7B-Instruct** (Apache-2.0, 4,7 GB) encontró un error, lo arregló y comprobó las pruebas en 83 s, solo con la CPU.
+- **El de 1.5B** usa bien las herramientas, pero no razona lo suficiente para arreglar código.
+
+Los modelos de código de Voxel Enterprise se entrenarán sobre esta base.
 
 ## 🧠 Reverse3D Core (motor exclusivo)
 

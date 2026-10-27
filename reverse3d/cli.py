@@ -1075,6 +1075,111 @@ def assistant_serve_cmd() -> None:
     raise typer.Exit(serve())
 
 
+# ─── work mode: a model with hands, asking first ──────────────────────────────
+
+work_app = typer.Typer(
+    help="Work mode: a model reads, changes and runs things in a folder, asking you first.",
+    no_args_is_help=True,
+)
+app.add_typer(work_app, name="work")
+
+
+class WorkMode(str, Enum):
+    ask = "ask"
+    edits = "edits"
+    free = "free"
+
+
+@work_app.command("run")
+def work_run_cmd(
+    task: str = typer.Argument(..., help='What to do, e.g. "fix the failing test".'),
+    folder: Path = typer.Option(Path("."), "-C", "--folder", help="Working folder."),
+    permissions: WorkMode = typer.Option(
+        WorkMode.ask,
+        "--permissions",
+        "-p",
+        help="ask: before every change and command · edits: files freely, commands ask · "
+        "free: files and commands freely (risky commands always ask).",
+    ),
+    model: Path | None = typer.Option(
+        None, "--model", help="GGUF model (default: newest in ~/.reverse3d/models/llm)."
+    ),
+    as_json: bool = typer.Option(False, "--json", help="JSON lines on stdin/stdout (Studio)."),
+    max_steps: int = typer.Option(30, "--max-steps"),
+) -> None:
+    """Give a model a task in a folder; it asks before changing anything (unless you let it)."""
+    from reverse3d.workbench import Agent, LlamaBrain, Permissions
+    from reverse3d.workbench.ui import find_model, json_lines, terminal
+
+    for stream in (sys.stdout, sys.stderr):  # old Windows consoles: never fail on a symbol
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+    console = Console()
+    path = find_model(model)
+    if path is None or not path.is_file():
+        console.print(
+            "[red]No model: pass --model file.gguf or put one in ~/.reverse3d/models/llm/[/red]"
+        )
+        raise typer.Exit(2)
+    if not folder.is_dir():
+        console.print(f"[red]{folder} is not a folder[/red]")
+        raise typer.Exit(2)
+    perms = Permissions.load(folder, permissions.value)
+    ask, on_event = json_lines() if as_json else terminal(console)
+    if not as_json:
+        console.print(f"[dim]{path.name} · {perms.folder} · permisos: {perms.mode}[/dim]")
+    agent = Agent(LlamaBrain(str(path)), perms, ask, on_event, max_steps=max_steps)
+    agent.run(task)
+
+
+@work_app.command("undo")
+def work_undo_cmd(
+    folder: Path = typer.Option(Path("."), "-C", "--folder"),
+    steps: int = typer.Option(1, "--steps", "-n", help="How many changes to put back."),
+) -> None:
+    """Put back the last changes a model made in this folder."""
+    from reverse3d.workbench import Permissions
+    from reverse3d.workbench.tools import Workspace
+
+    ws = Workspace(Permissions.load(folder))
+    for _ in range(steps):
+        done = ws.undo()
+        if done is None:
+            Console().print("Nothing left to undo.")
+            break
+        Console().print(f"undone: {done}")
+
+
+@work_app.command("permissions")
+def work_permissions_cmd(
+    folder: Path = typer.Option(Path("."), "-C", "--folder"),
+    reset: bool = typer.Option(False, "--reset", help="Forget the 'always in this folder'."),
+    add_folder: Path | None = typer.Option(
+        None, "--add-folder", help="Also let the model work in this folder."
+    ),
+) -> None:
+    """See or change what models may do in this folder without asking."""
+    from reverse3d.workbench import Permissions
+
+    perms = Permissions.load(folder)
+    if reset:
+        perms.saved.clear()
+        perms.extra_folders.clear()
+    if add_folder:
+        perms.extra_folders.append(add_folder.resolve())
+    if reset or add_folder:
+        perms.save()
+    Console().print_json(
+        json.dumps(
+            {
+                "folder": str(perms.folder),
+                "always_allowed": sorted(perms.saved),
+                "extra_folders": [str(p) for p in perms.extra_folders],
+            }
+        )
+    )
+
+
 # ─── configuration ────────────────────────────────────────────────────────────
 
 
