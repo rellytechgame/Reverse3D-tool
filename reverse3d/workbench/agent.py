@@ -56,9 +56,12 @@ class LlamaBrain:
     def __init__(self, model_path: str, n_ctx: int = 16384, gpu_layers: int = -1) -> None:
         import llama_cpp
 
-        self.llm = llama_cpp.Llama(
-            model_path=model_path, n_ctx=n_ctx, n_gpu_layers=gpu_layers, verbose=False
-        )
+        if model_path.lower().endswith(".r3dm"):  # a Voxel Enterprise encrypted pack
+            self.llm = _open_pack(model_path, n_ctx, gpu_layers)
+        else:
+            self.llm = llama_cpp.Llama(
+                model_path=model_path, n_ctx=n_ctx, n_gpu_layers=gpu_layers, verbose=False
+            )
         template = self.llm.metadata.get("tokenizer.chat_template") or ""
         self.native_tools = "tools" in template  # its template places the tools itself
 
@@ -79,6 +82,34 @@ class LlamaBrain:
         if "<tool_call>" in text and "</tool_call>" not in text:
             text += "</tool_call>"  # the stop word is cut from the reply
         return text
+
+
+def _open_pack(path: str, n_ctx: int, gpu_layers: int) -> Any:
+    """Decrypt a language pack (needs a licence that opens it) and load it.
+
+    llama.cpp reads from a file, so the decrypted model lives in a private temporary
+    file only while it loads (no memory map), and is deleted right after."""
+    import os
+    import tempfile
+    from pathlib import Path
+
+    import llama_cpp
+
+    from reverse3d.ai_models import _core_models
+
+    info, model = _core_models().decrypt(Path(path))
+    if info.manifest.get("runtime") != "gguf":
+        raise ValueError(f"{info.name} is not a language model")
+    fd, tmp = tempfile.mkstemp(suffix=".gguf")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(model)
+        del model
+        return llama_cpp.Llama(
+            model_path=tmp, n_ctx=n_ctx, n_gpu_layers=gpu_layers, use_mmap=False, verbose=False
+        )
+    finally:
+        Path(tmp).unlink(missing_ok=True)
 
 
 def system_prompt(identity: str, ws: Workspace) -> str:

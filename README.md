@@ -390,7 +390,7 @@ reverse3d work run "..." --json                      # líneas JSON: Studio o un
 
 **Todo cambio se puede deshacer:** lo anterior se guarda en `<carpeta>/.reverse3d/undo/`.
 
-**Modelo:** cualquier GGUF con llamadas a herramientas, en `~/.reverse3d/models/llm/` o con `--model`. Probado de verdad:
+**Modelo:** cualquier GGUF con llamadas a herramientas, en `~/.reverse3d/models/llm/` o con `--model`. También un paquete cifrado de Voxel Enterprise (`--model arjhit-code-1` o `--model archivo.r3dm`): se descifra con tu licencia solo mientras carga. Probado de verdad:
 - **Qwen2.5-Coder-7B-Instruct** (Apache-2.0, 4,7 GB) encontró un error, lo arregló y comprobó las pruebas en 83 s, solo con la CPU.
 - **El de 1.5B** usa bien las herramientas, pero no razona lo suficiente para arreglar código.
 

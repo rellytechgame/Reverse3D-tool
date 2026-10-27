@@ -96,7 +96,15 @@ def json_lines() -> tuple[Any, Any]:
 
 
 def find_model(explicit: Path | None) -> Path | None:
-    """The GGUF to work with: --model, else the newest in ~/.reverse3d/models/llm/."""
+    """The model to work with: --model (a .gguf, a .r3dm, or the name of an installed
+    pack), else the newest GGUF in ~/.reverse3d/models/llm/."""
+    if explicit and not explicit.exists() and explicit.suffix == "":
+        try:  # an installed Voxel Enterprise pack, by name
+            from reverse3d.ai_models import _core_models
+
+            return Path(_core_models().find_pack(str(explicit)))
+        except Exception:
+            return explicit
     if explicit:
         return explicit
     folder = Path.home() / ".reverse3d" / "models" / "llm"
